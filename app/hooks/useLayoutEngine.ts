@@ -27,9 +27,11 @@ function layoutRow(
 ): LayoutRow {
   const { containerWidth, spacing } = options;
   
-  // Calculate total aspect ratio for the row
+  // Calculate total aspect ratio for the row, using a default of 1 for items without dimensions
   const totalAspectRatio = items.reduce((sum, item) => {
-    return sum + (item.dimensions?.aspectRatio || 1);
+    // If no dimensions, assume a square aspect ratio
+    const aspectRatio = item.dimensions?.aspectRatio ?? 1;
+    return sum + aspectRatio;
   }, 0);
 
   // Calculate row height and base widths
@@ -176,11 +178,8 @@ export function useLayoutEngine(
       tolerance: options.tolerance || 20
     };
 
-    // Filter items without dimensions
-    const validItems = items.filter(item => item.dimensions?.aspectRatio);
-    
-    // Calculate layout
-    const rows = calculateLayout(validItems, layoutOptions);
+    // Calculate layout with all items, using default aspect ratio for those without dimensions
+    const rows = calculateLayout(items, layoutOptions);
     
     return {
       rows,

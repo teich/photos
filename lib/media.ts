@@ -119,7 +119,7 @@ async function getMediaItemsInSection(sectionDir: string): Promise<MediaItem[]> 
     const relativePath = join(sectionDir, filename).replace(/\\/g, '/');
 
     const item: MediaItem = {
-      id: `${sectionDir}-${filename}`.replace(/\s+/g, '-'),
+      id: join(sectionDir, filename).replace(/\s+/g, '-'),
       type,
       section: sectionDir,
       filename,

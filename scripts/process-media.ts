@@ -89,12 +89,11 @@ async function generateStandardFilename(
             .replace('T', '-')
             .replace(/:/g, '')
             .split('.')[0];
-          console.log(`Using EXIF capture date: ${dateStr}`);
         } else {
           throw new Error('No capture date found in EXIF');
         }
       } catch (exifError) {
-        console.log('Error parsing EXIF:', exifError);
+        console.error('Error parsing EXIF:', exifError);
         // Fallback to file creation time
         const stats = fs.statSync(sourcePath);
         const date = stats.birthtime;
@@ -102,7 +101,6 @@ async function generateStandardFilename(
           .replace('T', '-')
           .replace(/:/g, '')
           .split('.')[0];
-        console.log(`EXIF parse error, using file creation time: ${dateStr}`);
       }
     } else {
       // No EXIF data, use file creation time
@@ -112,7 +110,6 @@ async function generateStandardFilename(
         .replace('T', '-')
         .replace(/:/g, '')
         .split('.')[0];
-      console.log(`No EXIF data found, using file creation time: ${dateStr}`);
     }
   } catch (error) {
     // If all else fails, use current date
@@ -121,7 +118,6 @@ async function generateStandardFilename(
       .replace('T', '-')
       .replace(/:/g, '')
       .split('.')[0];
-    console.log(`Error getting date, using current time: ${dateStr}`);
     console.error('Date extraction error:', error);
   }
 
@@ -173,10 +169,23 @@ async function processImage(sourcePath: string, destDir: string, newFilename: st
     const fullSizePath = path.join(destDir, newFilename);
     const thumbPath = path.join(destDir, `${newBasename}-thumb.jpg`);
 
-    // Get image metadata
-    const metadata = await sharp(sourcePath).metadata();
-    if (!metadata.width || !metadata.height) {
-      throw new Error('Could not extract image dimensions');
+    // Get image metadata with enhanced error handling
+    let metadata;
+    try {
+      metadata = await sharp(sourcePath).metadata();
+      if (!metadata.width || !metadata.height) {
+        // Try alternative method using buffer
+        const buffer = await sharp(sourcePath).toBuffer();
+        const fallbackMetadata = await sharp(buffer).metadata();
+        if (!fallbackMetadata.width || !fallbackMetadata.height) {
+          throw new Error('Could not extract image dimensions');
+        }
+        metadata.width = fallbackMetadata.width;
+        metadata.height = fallbackMetadata.height;
+      }
+    } catch (error) {
+      console.error(`Error extracting dimensions for ${sourcePath}:`, error);
+      throw error;
     }
 
     const dimensions: MediaMetadata = {
@@ -192,7 +201,6 @@ async function processImage(sourcePath: string, destDir: string, newFilename: st
     }
 
     // Always create thumbnail
-    console.log(`Generating thumbnail for ${sourcePath} -> ${thumbPath}`);
     try {
       // Ensure thumbnail directory exists
       ensureDir(path.dirname(thumbPath));
@@ -207,7 +215,6 @@ async function processImage(sourcePath: string, destDir: string, newFilename: st
 
       // Get info about the pipeline
       const info = await pipeline.metadata();
-      console.log(`Pipeline configured: ${info.width}x${info.height}, format: ${info.format}`);
 
       // Write the file
       await pipeline.toFile(thumbPath);
@@ -218,12 +225,10 @@ async function processImage(sourcePath: string, destDir: string, newFilename: st
       // Verify thumbnail was created
       if (fs.existsSync(thumbPath)) {
         const stats = fs.statSync(thumbPath);
-        console.log(`Thumbnail created successfully: ${thumbPath} (${stats.size} bytes)`);
         
         // Double check the file is readable
         try {
           await sharp(thumbPath).metadata();
-          console.log(`Thumbnail verified readable: ${thumbPath}`);
         } catch (verifyError) {
           console.error(`Thumbnail verification failed: ${verifyError}`);
           throw verifyError;
@@ -255,7 +260,7 @@ async function processVideo(sourcePath: string, destDir: string): Promise<Proces
       const ext = path.extname(sourcePath);
       const originalBasename = path.basename(sourcePath, ext);
       
-      // Get video dimensions first
+      // Get video dimensions first with enhanced error handling
       new Promise<any>((probeResolve, probeReject) => {
         ffmpeg.ffprobe(sourcePath, (err, metadata) => {
           if (err) {
@@ -266,13 +271,31 @@ async function processVideo(sourcePath: string, destDir: string): Promise<Proces
         });
       })
       .then(async (metadata) => {
-        const videoStream = metadata.streams.find((s: any) => s.codec_type === 'video');
+        let videoStream = metadata.streams.find((s: any) => s.codec_type === 'video');
         if (!videoStream) {
-          throw new Error('No video stream found');
+          // Try alternative streams or rotation metadata
+          const rotatedStream = metadata.streams.find((s: any) => 
+            s.codec_type === 'video' && (s.tags?.rotate || s.side_data_list?.some((d: any) => d.rotation))
+          );
+          if (rotatedStream) {
+            videoStream = rotatedStream;
+          } else {
+            throw new Error('No valid video stream found');
+          }
         }
 
-        const width = videoStream.width || 0;
-        const height = videoStream.height || 0;
+        // Handle potential rotation
+        let width = videoStream.width || 0;
+        let height = videoStream.height || 0;
+        
+        // Check for rotation metadata
+        const rotation = videoStream.tags?.rotate || 
+          (videoStream.side_data_list?.find((d: any) => d.rotation)?.rotation || 0);
+        
+        // Swap dimensions if video is rotated 90 or 270 degrees
+        if (rotation === '90' || rotation === '270' || rotation === 90 || rotation === 270) {
+          [width, height] = [height, width];
+        }
 
         // Generate standardized filename
         const newFilename = await generateStandardFilename(sourcePath, destDir, ext);
@@ -413,7 +436,6 @@ async function processDirectory(sourceDir: string, destDir: string) {
     );
     
     if (isAlreadyProcessed) {
-      console.log(`Skipping ${item} - already processed`);
       continue;
     }
 
@@ -525,7 +547,6 @@ function cleanupOrphaned(publicDir: string, originalsDir: string) {
       );
 
       if (!mainFileExists) {
-        console.log(`Cleaning up orphaned thumbnail/preview: ${publicPath}`);
         try {
           fs.unlinkSync(publicPath);
         } catch (error) {
@@ -539,14 +560,12 @@ function cleanupOrphaned(publicDir: string, originalsDir: string) {
     const fileMetadata = metadata.images[basename];
     if (!fileMetadata) {
       // File exists but no metadata - might be in process of being created
-      console.log(`Skipping cleanup for ${basename} - no metadata yet`);
       continue;
     }
 
     // Check if original file still exists
     const originalExists = originalFiles.some(f => f === fileMetadata.originalFilename);
     if (!originalExists) {
-      console.log(`Cleaning up orphaned file: ${publicPath}`);
       try {
         // Remove the file
         fs.unlinkSync(publicPath);
@@ -571,6 +590,57 @@ function cleanupOrphaned(publicDir: string, originalsDir: string) {
   }
 }
 
+/**
+ * Validate metadata for missing dimensions
+ */
+async function validateMetadata(dir: string): Promise<Array<{filename: string, originalFilename: string}>> {
+  const metadataPath = path.join(dir, 'metadata.json');
+  if (!fs.existsSync(metadataPath)) return [];
+  
+  const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+  const missingDimensions = [];
+  
+  for (const [filename, data] of Object.entries<MediaMetadata>(metadata.images)) {
+    if (!data.width || !data.height || !data.aspectRatio) {
+      missingDimensions.push({
+        filename,
+        originalFilename: data.originalFilename
+      });
+    }
+  }
+  
+  return missingDimensions;
+}
+
+/**
+ * Reprocess files with missing dimensions
+ */
+async function reprocessMissingDimensions(dir: string) {
+  const missing = await validateMetadata(dir);
+  if (!missing || missing.length === 0) {
+    return;
+  }
+  
+  if (missing.length > 0) {
+    console.log(`Found ${missing.length} files with missing dimensions in ${dir}`);
+  }
+  
+  for (const item of missing) {
+    const sourcePath = path.join(ORIGINALS_DIR, item.originalFilename);
+    if (!fs.existsSync(sourcePath)) {
+      console.error(`Original file not found: ${sourcePath}`);
+      continue;
+    }
+    
+    const ext = path.extname(item.originalFilename);
+    if (SUPPORTED_IMAGE_TYPES.includes(ext)) {
+      await processImage(sourcePath, dir, item.filename);
+    } else if (SUPPORTED_VIDEO_TYPES.includes(ext)) {
+      await processVideo(sourcePath, dir);
+    }
+  }
+}
+
 // Main execution
 async function main() {
   try {
@@ -584,7 +654,27 @@ async function main() {
     // Process all media files
     await processDirectory(ORIGINALS_DIR, PUBLIC_DIR);
     
-    console.log('Media processing completed successfully');
+    // Add validation step
+    await reprocessMissingDimensions(PUBLIC_DIR);
+    
+    // Recursively validate subdirectories
+    const validateSubdirs = async (dir: string) => {
+      const items = fs.readdirSync(dir);
+      for (const item of items) {
+        const fullPath = path.join(dir, item);
+        if (fs.statSync(fullPath).isDirectory()) {
+          await reprocessMissingDimensions(fullPath);
+          await validateSubdirs(fullPath);
+        }
+      }
+    };
+    await validateSubdirs(PUBLIC_DIR);
+    
+    // Only output final status if there were any files processed
+    const hasProcessedFiles = fs.readdirSync(PUBLIC_DIR).length > 0;
+    if (hasProcessedFiles) {
+      console.log('Media processing completed');
+    }
   } catch (error) {
     console.error('Error processing media:', error);
     process.exit(1);

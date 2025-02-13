@@ -3,8 +3,10 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useLayoutEngine } from "../hooks/useLayoutEngine";
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useLayoutEffect } from "react";
 import { MediaItem } from "@/lib/media";
+import { usePathname } from "next/navigation";
+import { useRouterState } from "../hooks/useRouterState";
 
 interface GalleryProps {
   items: MediaItem[];
@@ -17,9 +19,23 @@ const GALLERY_CONFIG = {
 };
 
 export function Gallery({ items }: GalleryProps) {
-  
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
+  const pathname = usePathname();
+  const [getLastViewedImage] = useRouterState<string>('lastViewedImage');
+
+  // Calculate layout
+  const { rows } = useLayoutEngine(items, containerWidth, {
+    targetRowHeight: GALLERY_CONFIG.targetRowHeight,
+    spacing: GALLERY_CONFIG.horizontalSpacing,
+    tolerance: 20
+  });
+
+  // Get image ID from either pathname or last viewed state
+  const currentImageId = pathname.split('/').slice(1).join('/') || getLastViewedImage();
+
+  // Check if the target image is in our items list
+  const targetImageInItems = items.some(item => item.id === currentImageId);
 
   // Update container width on resize
   useEffect(() => {
@@ -34,20 +50,37 @@ export function Gallery({ items }: GalleryProps) {
     return () => window.removeEventListener('resize', updateWidth);
   }, []);
 
-  // Calculate layout
-  const { rows } = useLayoutEngine(items, containerWidth, {
-    targetRowHeight: GALLERY_CONFIG.targetRowHeight,
-    spacing: GALLERY_CONFIG.horizontalSpacing,
-    tolerance: 20
-  });
-  
-  if (rows.length > 0) {
-    console.log('First row:', {
-      height: rows[0].height,
-      items: rows[0].items.length,
-      sampleItemWidth: rows[0].items[0]?.width
-    });
-  }
+  // Calculate and set scroll position when current image changes
+  useEffect(() => {
+    if (!currentImageId || !containerWidth || rows.length === 0 || !targetImageInItems) {
+      return;
+    }
+
+    // Delay scroll calculation to ensure layout is complete
+    const timeoutId = setTimeout(() => {
+      let position = 0;
+      let found = false;
+
+      for (const row of rows) {
+        const matchingItem = row.items.find(item => item.id === currentImageId);
+        if (matchingItem) {
+          found = true;
+          break;
+        }
+        position += row.height + GALLERY_CONFIG.verticalSpacing;
+      }
+
+      if (found) {
+        window.scrollTo({
+          top: position,
+          behavior: 'instant'
+        });
+      } else {
+      }
+    }, 0);
+
+    return () => clearTimeout(timeoutId);
+  }, [rows, currentImageId, containerWidth]);
 
   return (
     <div 

@@ -3,7 +3,8 @@
 import { MediaItem } from "@/lib/media";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef, useState } from "react";
+import { useRouterState } from "../hooks/useRouterState";
 
 interface LightboxProps {
   item: MediaItem;
@@ -12,17 +13,131 @@ interface LightboxProps {
 
 export function Lightbox({ item, allItems }: LightboxProps) {
   const router = useRouter();
-
+  // Sliding window of preloaded images with loading states
+  const preloadQueue = useRef<Map<string, {
+    loading: boolean;
+    image: HTMLImageElement | null;
+    error: boolean;
+  }>>(new Map());
+  
+  // Navigation state management
+  const [isNavigating, setIsNavigating] = useState(false);
+  const navigationState = useRef({
+    isProcessing: false,
+    lastRequestTime: 0,
+    minimumInterval: 200 // ms between navigations
+  });
+  
   // Get current index for navigation
   const currentIndex = allItems.findIndex(i => i.id === item.id);
 
-  const close = useCallback(() => {
-    router.push('/');
-  }, [router]);
+  // Preload images in a sliding window
+  useEffect(() => {
+    const PRELOAD_WINDOW = 2; // Preload 2 images before and after
+    const imagesToPreload: MediaItem[] = [];
+    
+    // Calculate preload range
+    for (let i = Math.max(0, currentIndex - PRELOAD_WINDOW); 
+         i <= Math.min(allItems.length - 1, currentIndex + PRELOAD_WINDOW); 
+         i++) {
+      imagesToPreload.push(allItems[i]);
+    }
 
-  const navigateToItem = useCallback((index: number) => {
-    if (index >= 0 && index < allItems.length) {
-      router.push(`/${allItems[index].id}`);
+    // Remove items outside the window to manage memory
+    const validIds = new Set(imagesToPreload.map(item => item.id));
+    for (const [id] of preloadQueue.current) {
+      if (!validIds.has(id)) {
+        const item = preloadQueue.current.get(id);
+        if (item?.image) {
+          item.image.src = ''; // Clear src to help garbage collection
+          item.image = null;
+        }
+        preloadQueue.current.delete(id);
+      }
+    }
+
+    // Preload new images
+    imagesToPreload.forEach(mediaItem => {
+      if (mediaItem.type === 'image' && !preloadQueue.current.has(mediaItem.id)) {
+        const img = new window.Image();
+        
+        preloadQueue.current.set(mediaItem.id, {
+          loading: true,
+          image: img,
+          error: false
+        });
+
+        img.onload = () => {
+          preloadQueue.current.set(mediaItem.id, {
+            loading: false,
+            image: img,
+            error: false
+          });
+        };
+
+        img.onerror = () => {
+          preloadQueue.current.set(mediaItem.id, {
+            loading: false,
+            image: null,
+            error: true
+          });
+        };
+
+        img.src = mediaItem.url;
+      }
+    });
+
+    // Cleanup function
+    return () => {
+      preloadQueue.current.forEach((item) => {
+        if (item.image) {
+          item.image.src = '';
+          item.image = null;
+        }
+      });
+      preloadQueue.current.clear();
+    };
+  }, [currentIndex, allItems]);
+
+  const [_, setLastViewedImage] = useRouterState<string>('lastViewedImage');
+
+  // Update last viewed image whenever it changes
+  useEffect(() => {
+    setLastViewedImage(item.id);
+  }, [item.id, setLastViewedImage]);
+
+  const close = useCallback(() => {
+    // Ensure the state is set before navigation
+    setLastViewedImage(item.id);
+    // Use setTimeout to ensure state is set before navigation
+    setTimeout(() => {
+      router.push('/');
+    }, 0);
+  }, [router, item.id, setLastViewedImage]);
+
+  // Navigation with queue management
+  const navigateToItem = useCallback(async (index: number) => {
+    if (index < 0 || index >= allItems.length) return;
+    
+    const now = Date.now();
+    if (navigationState.current.isProcessing || 
+        (now - navigationState.current.lastRequestTime) < navigationState.current.minimumInterval) {
+      return;
+    }
+
+    navigationState.current.isProcessing = true;
+    navigationState.current.lastRequestTime = now;
+    
+    try {
+      setIsNavigating(true);
+      await router.push(`/${allItems[index].id}`);
+    } finally {
+      // Use a timeout to ensure the loading state is visible long enough
+      // to prevent flickering
+      setTimeout(() => {
+        navigationState.current.isProcessing = false;
+        setIsNavigating(false);
+      }, 100);
     }
   }, [allItems, router]);
 
@@ -53,15 +168,27 @@ export function Lightbox({ item, allItems }: LightboxProps) {
     >
       <div className="relative w-full h-full flex items-center justify-center group">
         {item.type === "image" ? (
-          <Image
-            src={item.url}
-            alt={item.filename}
-            className="max-h-screen max-w-full w-auto h-auto object-contain"
-            width={2000}
-            height={2000}
-            onClick={(e) => e.stopPropagation()}
-            priority
-          />
+          <div className="relative">
+            {isNavigating && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                <div className="animate-spin rounded-full h-12 w-12 border-4 border-white border-t-transparent"></div>
+              </div>
+            )}
+            <Image
+              src={item.url}
+              alt={item.filename}
+              className={`max-h-screen max-w-full w-auto h-auto object-contain transition-opacity duration-300 ${
+                isNavigating ? 'opacity-50' : 'opacity-100'
+              }`}
+              width={item.dimensions?.width || 1920}
+              height={item.dimensions?.height || 1080}
+              onClick={(e) => e.stopPropagation()}
+              priority={true}
+              loading="eager"
+              sizes="100vw"
+              quality={90}
+            />
+          </div>
         ) : (
           <video
             src={item.url}

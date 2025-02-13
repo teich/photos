@@ -1,24 +1,24 @@
-import type { Metadata } from "next";
-import { Inter } from "next/font/google";
-import "./globals.css";
-
-const inter = Inter({ subsets: ["latin"] });
+import './globals.css'
+import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: "Photo Gallery",
-  description: "Personal photo and video gallery",
-};
+  title: 'Photos',
+  description: 'Photo gallery',
+}
 
 export default function RootLayout({
   children,
+  modal
 }: {
-  children: React.ReactNode;
+  children: React.ReactNode
+  modal: React.ReactNode
 }) {
   return (
     <html lang="en">
-      <body className={inter.className}>
+      <body>
         {children}
+        {modal}
       </body>
     </html>
-  );
+  )
 }
