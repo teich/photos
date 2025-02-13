@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import sharp from 'sharp';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
@@ -17,9 +18,18 @@ interface ExifData {
 // Configure ffmpeg path
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
-// Configuration
-const ORIGINALS_DIR = 'photos';  // Source directory for original files
+// Get input directory from command line args or use default
+const DEFAULT_PHOTOS_DIR = path.join(os.homedir(), 'Pictures', 'web');
+const inputDir = process.argv[2] || DEFAULT_PHOTOS_DIR;
+const ORIGINALS_DIR = path.resolve(inputDir);  // Source directory for original files
 const PUBLIC_DIR = 'public/photos';  // Destination directory for web assets
+
+// Validate input directory
+if (!fs.existsSync(ORIGINALS_DIR)) {
+  console.error(`Error: Directory not found: ${ORIGINALS_DIR}`);
+  console.error(`Please create the directory or specify a different path.`);
+  process.exit(1);
+}
 const THUMBNAIL_WIDTH = 800;
 const THUMBNAIL_QUALITY = 85;
 const VIDEO_PREVIEW_DURATION = 3; // seconds

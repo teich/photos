@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "process-media": "NODE_OPTIONS='--loader ts-node/esm' node --experimental-modules scripts/process-media.ts",
+    "process-media": "NODE_OPTIONS='--loader ts-node/esm' node --experimental-modules scripts/process-media.ts \"$@\"",
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
