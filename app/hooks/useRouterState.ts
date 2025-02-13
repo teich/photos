@@ -1,19 +1,17 @@
 "use client";
 
 import { useCallback, useRef, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 
 // Global state that persists across route changes
-const globalState = new Map<string, any>();
+const globalState = new Map<string, unknown>();
 
 export function useRouterState<T>(key: string) {
-  const router = useRouter();
   const stateRef = useRef<T | null>(null);
 
   // Initialize from global state if it exists
   useEffect(() => {
     if (globalState.has(key)) {
-      stateRef.current = globalState.get(key);
+      stateRef.current = globalState.get(key) as T;
     }
   }, [key]);
 
@@ -23,7 +21,7 @@ export function useRouterState<T>(key: string) {
   }, [key]);
 
   const getState = useCallback(() => {
-    return stateRef.current ?? globalState.get(key);
+    return stateRef.current ?? (globalState.get(key) as T);
   }, [key]);
 
   // Clear state when component unmounts

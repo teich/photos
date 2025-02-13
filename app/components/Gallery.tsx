@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useLayoutEngine } from "../hooks/useLayoutEngine";
-import { useRef, useState, useEffect, useLayoutEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 import { MediaItem } from "@/lib/media";
 import { usePathname } from "next/navigation";
 import { useRouterState } from "../hooks/useRouterState";
@@ -80,7 +80,7 @@ export function Gallery({ items }: GalleryProps) {
     }, 0);
 
     return () => clearTimeout(timeoutId);
-  }, [rows, currentImageId, containerWidth]);
+  }, [rows, currentImageId, containerWidth, targetImageInItems]);
 
   return (
     <div 

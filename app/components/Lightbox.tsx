@@ -87,19 +87,22 @@ export function Lightbox({ item, allItems }: LightboxProps) {
       }
     });
 
+    // Capture ref value for cleanup
+    const queue = preloadQueue.current;
+    
     // Cleanup function
     return () => {
-      preloadQueue.current.forEach((item) => {
+      queue.forEach((item) => {
         if (item.image) {
           item.image.src = '';
           item.image = null;
         }
       });
-      preloadQueue.current.clear();
+      queue.clear();
     };
   }, [currentIndex, allItems]);
 
-  const [_, setLastViewedImage] = useRouterState<string>('lastViewedImage');
+  const [, setLastViewedImage] = useRouterState<string>('lastViewedImage');
 
   // Update last viewed image whenever it changes
   useEffect(() => {
