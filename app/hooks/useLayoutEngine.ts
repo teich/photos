@@ -64,6 +64,44 @@ function layoutRow(
 }
 
 /**
+ * Check if two images have similar aspect ratios (would create a visual seam)
+ */
+function hasSimilarAspectRatio(a: MediaItem, b: MediaItem, threshold = 0.2): boolean {
+  const aRatio = a.dimensions?.aspectRatio || 1;
+  const bRatio = b.dimensions?.aspectRatio || 1;
+  return Math.abs(aRatio - bRatio) < threshold;
+}
+
+/**
+ * Find the best swap candidate in a row to break a vertical seam
+ */
+function findSwapCandidate(
+  currentRow: MediaItem[],
+  previousRow: MediaItem[],
+  currentIndex: number
+): number {
+  let bestSwapIndex = -1;
+  let leastSimilar = Number.MAX_VALUE;
+
+  // Try to find an image that's least similar to the one we're trying to avoid aligning with
+  for (let i = 0; i < currentRow.length; i++) {
+    if (i === currentIndex) continue;
+    
+    const similarity = Math.abs(
+      (previousRow[currentIndex].dimensions?.aspectRatio || 1) -
+      (currentRow[i].dimensions?.aspectRatio || 1)
+    );
+    
+    if (similarity > leastSimilar) {
+      leastSimilar = similarity;
+      bestSwapIndex = i;
+    }
+  }
+
+  return bestSwapIndex;
+}
+
+/**
  * Try different row arrangements to find optimal layout
  */
 function calculateLayout(
@@ -71,18 +109,22 @@ function calculateLayout(
   options: LayoutOptions
 ): LayoutRow[] {
   const { containerWidth, targetRowHeight, spacing, tolerance } = options;
-  
   const bestLayout: LayoutRow[] = [];
-
-  // Try different numbers of items per row
+  let previousRow: MediaItem[] | null = null;
+  
+  // Create a copy of items to prevent modifying original
+  const workingItems = [...items];
+  const usedItems = new Set<string>();
+  
+  // Process items into rows
   let startIndex = 0;
-  while (startIndex < items.length) {
+  while (startIndex < workingItems.length) {
     const currentRow: MediaItem[] = [];
     let currentWidth = 0;
     
     // Add items to row while tracking width
-    for (let i = startIndex; i < items.length; i++) {
-      const item = items[i];
+    for (let i = startIndex; i < workingItems.length; i++) {
+      const item = workingItems[i];
       const aspectRatio = item.dimensions?.aspectRatio || 1;
       const itemWidth = targetRowHeight * aspectRatio;
       
@@ -97,13 +139,46 @@ function calculateLayout(
         break;
       }
       
-      currentRow.push(item);
+      // Skip if this item has already been used
+      if (usedItems.has(item.id)) {
+        continue;
+      }
+
+      // Before adding to row, check if this would create a vertical seam
+      if (previousRow && currentRow.length < previousRow.length) {
+        const prevIndex = currentRow.length;
+        if (hasSimilarAspectRatio(item, previousRow[prevIndex])) {
+          // Look ahead for a better candidate to swap with
+          let foundSwap = false;
+          for (let j = i + 1; j < Math.min(workingItems.length, i + 3); j++) {
+            const nextItem = workingItems[j];
+            if (!usedItems.has(nextItem.id) && !hasSimilarAspectRatio(nextItem, previousRow[prevIndex])) {
+              // Swap items to avoid the seam
+              [workingItems[i], workingItems[j]] = [workingItems[j], workingItems[i]];
+              foundSwap = true;
+              break;
+            }
+          }
+          // If no swap was found, just use the current item
+          if (!foundSwap) {
+            currentRow.push(item);
+            usedItems.add(item.id);
+          }
+        } else {
+          currentRow.push(item);
+          usedItems.add(item.id);
+        }
+      } else {
+        currentRow.push(item);
+        usedItems.add(item.id);
+      }
     }
 
     // Layout the row
     if (currentRow.length > 0) {
       const row = layoutRow(currentRow, options);
       bestLayout.push(row);
+      previousRow = currentRow;
       startIndex += currentRow.length;
     } else {
       // Prevent infinite loop if we can't fit any items
