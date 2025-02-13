@@ -385,9 +385,28 @@ async function processDirectory(sourceDir: string, destDir: string) {
     fs.writeFileSync(metadataPath, JSON.stringify({ images: {} }, null, 2));
   }
 
+  // Read existing metadata
+  let metadata: SectionMetadata;
+  try {
+    metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+  } catch (error) {
+    console.error(`Error reading metadata: ${error}`);
+    metadata = { images: {} };
+  }
+
   const items = fs.readdirSync(sourceDir);
 
   for (const item of items) {
+    // Check if file has already been processed by looking for its original filename
+    const isAlreadyProcessed = Object.values(metadata.images).some(
+      meta => meta.originalFilename === item
+    );
+    
+    if (isAlreadyProcessed) {
+      console.log(`Skipping ${item} - already processed`);
+      continue;
+    }
+
     const sourcePath = path.join(sourceDir, item);
     const stat = fs.statSync(sourcePath);
 
