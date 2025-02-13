@@ -73,35 +73,6 @@ function hasSimilarAspectRatio(a: MediaItem, b: MediaItem, threshold = 0.2): boo
 }
 
 /**
- * Find the best swap candidate in a row to break a vertical seam
- */
-function findSwapCandidate(
-  currentRow: MediaItem[],
-  previousRow: MediaItem[],
-  currentIndex: number
-): number {
-  let bestSwapIndex = -1;
-  let leastSimilar = Number.MAX_VALUE;
-
-  // Try to find an image that's least similar to the one we're trying to avoid aligning with
-  for (let i = 0; i < currentRow.length; i++) {
-    if (i === currentIndex) continue;
-    
-    const similarity = Math.abs(
-      (previousRow[currentIndex].dimensions?.aspectRatio || 1) -
-      (currentRow[i].dimensions?.aspectRatio || 1)
-    );
-    
-    if (similarity > leastSimilar) {
-      leastSimilar = similarity;
-      bestSwapIndex = i;
-    }
-  }
-
-  return bestSwapIndex;
-}
-
-/**
  * Try different row arrangements to find optimal layout
  */
 function calculateLayout(
