@@ -1,36 +1,115 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Personal Photo/Video Gallery
 
-## Getting Started
+![Gallery Screenshot](docs/screenshot.jpg)
 
-First, run the development server:
+A high-performance, statically-generated photo and video gallery built with Next.js. Designed for simplicity and speed, it handles large media collections with ease while maintaining a beautiful, responsive interface.
 
+## ✨ Features
+
+- **Masonry Grid Layout** - Beautifully arranged photos and videos in a responsive grid
+- **Lightning Fast** - Optimized media loading and smooth scrolling experience
+- **High Quality** - Support for large images (10MB+) and videos (350MB+)
+- **Simple Management** - Folder-based organization with minimal metadata requirements
+- **Mobile Friendly** - Responsive design with touch-friendly navigation
+- **Direct Linking** - Share specific photos/videos with clean URLs
+
+## 🚀 Performance
+
+- Fast initial page load
+- Lazy loading for media
+- Automatic thumbnail generation
+- Video preview optimization
+- Smooth scrolling experience
+
+## 🛠 Tech Stack
+
+- **Next.js** - Server components and static generation
+- **TypeScript** - Type-safe development
+- **TailwindCSS** - Utility-first styling
+- **Sharp** - Image processing and optimization
+- **FFmpeg** - Video processing and previews
+
+## 📦 Installation
+
+1. Clone the repository:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone [repository-url]
+cd photo-gallery
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Install dependencies:
+```bash
+npm install
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+3. Add your media:
+- Place photos/videos in `public/photos/[section-name]/`
+- Run media processing:
+```bash
+npm run process-media
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+4. Start development server:
+```bash
+npm run dev
+```
 
-## Learn More
+## 🎯 Development
 
-To learn more about Next.js, take a look at the following resources:
+### Prerequisites
+- Node.js (v18+)
+- FFmpeg (for video processing)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Key Commands
+```bash
+# Start development server
+npm run dev
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+# Process media (generate thumbnails/previews)
+npm run process-media
 
-## Deploy on Vercel
+# Build for production
+npm run build
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## 📁 Project Structure
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+photo-gallery/
+├─ app/                # Next.js App Router
+│  ├─ page.tsx        # Main gallery page
+│  ├─ [id]/           # Dynamic image routes
+│  └─ components/     # Shared components
+├─ public/photos/     # Media files
+├─ lib/               # Utilities
+└─ scripts/           # Build scripts
+```
+
+## 🌟 Media Support
+
+### Images
+- Formats: jpg, png, webp
+- Size: Up to 10MB
+- Auto-generated thumbnails
+
+### Videos
+- Formats: mp4, mov
+- Size: Up to 350MB
+- Auto-generated previews
+- Thumbnail extraction
+
+## 📱 Browser Support
+
+- Modern browsers (last 2 versions)
+- Mobile browsers
+- Progressive enhancement
+
+## 🚀 Deployment
+
+Deploy on Vercel for optimal performance:
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fyour-username%2Fphoto-gallery)
+
+## 📝 License
+
+MIT License - feel free to use this project as you wish.
