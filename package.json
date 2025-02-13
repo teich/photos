@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "process-media": "NODE_OPTIONS='--loader ts-node/esm' node --experimental-modules scripts/process-media.ts",
-    "dev": "npm run process-media && next dev --turbopack",
-    "build": "npm run process-media && next build",
+    "dev": "next dev --turbopack",
+    "build": "next build",
     "start": "next start",
     "lint": "next lint"
   },
