@@ -74,9 +74,6 @@ async function processImage(filePath: string): Promise<ProcessingResult> {
         .jpeg({ quality: THUMBNAIL_QUALITY })
         .toFile(thumbPath);
 
-      console.log(`Created thumbnail: ${thumbPath}`);
-    } else {
-      console.log(`Thumbnail already exists: ${thumbPath}`);
     }
 
     return { success: true, dimensions };
@@ -102,7 +99,6 @@ async function processVideo(filePath: string): Promise<ProcessingResult> {
 
       // Skip if both thumbnail and preview already exist
       if (fs.existsSync(thumbPath) && fs.existsSync(previewPath)) {
-        console.log(`Video assets already exist for: ${filePath}`);
         resolve({ success: true });
         return;
       }
@@ -122,7 +118,6 @@ async function processVideo(filePath: string): Promise<ProcessingResult> {
             .size(VIDEO_PREVIEW_SIZE)
             .output(previewPath)
             .on('end', () => {
-              console.log(`Created video assets for: ${filePath}`);
               resolve({ success: true });
             })
             .on('error', (err: Error) => {
@@ -165,7 +160,6 @@ async function updateSectionMetadata(dir: string, filename: string, dimensions: 
     try {
       metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
     } catch (error) {
-      console.error(`Error reading metadata at ${metadataPath}:`, error);
     }
   }
 
@@ -175,9 +169,7 @@ async function updateSectionMetadata(dir: string, filename: string, dimensions: 
   // Write updated metadata
   try {
     fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
-    console.log(`Updated metadata for original file: ${filename}`);
   } catch (error) {
-    console.error(`Error writing metadata at ${metadataPath}:`, error);
   }
 }
 
@@ -200,14 +192,12 @@ async function processDirectory(dir: string) {
       if (SUPPORTED_IMAGE_TYPES.includes(ext)) {
         const result = await processImage(fullPath);
         if (!result.success) {
-          console.error(`Failed to process image ${fullPath}: ${result.error}`);
         } else if (result.dimensions) {
           await updateSectionMetadata(dir, item, result.dimensions);
         }
       } else if (SUPPORTED_VIDEO_TYPES.includes(ext)) {
         const result = await processVideo(fullPath);
         if (!result.success) {
-          console.error(`Failed to process video ${fullPath}: ${result.error}`);
         }
       }
     }
@@ -218,7 +208,6 @@ async function processDirectory(dir: string) {
  * Clean up orphaned processed files and metadata
  */
 function cleanupOrphaned(dir: string) {
-  console.log(`Cleaning orphaned files in: ${dir}`);
   const items = fs.readdirSync(dir);
   const metadataPath = path.join(dir, 'metadata.json');
   let metadata: SectionMetadata | undefined;
@@ -227,9 +216,7 @@ function cleanupOrphaned(dir: string) {
   if (fs.existsSync(metadataPath)) {
     try {
       metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
-      console.log(`Read existing metadata from: ${metadataPath}`);
     } catch (error) {
-      console.error(`Error reading metadata at ${metadataPath}:`, error);
     }
   }
 
@@ -263,7 +250,6 @@ function cleanupOrphaned(dir: string) {
         if (!originalExists) {
           // Delete orphaned thumbnail/preview
           fs.unlinkSync(fullPath);
-          console.log(`Removed orphaned file: ${fullPath}`);
         }
       }
       
@@ -273,7 +259,6 @@ function cleanupOrphaned(dir: string) {
         if (metadata.images[basename] && !fs.existsSync(fullPath)) {
           delete metadata.images[basename];
           metadataChanged = true;
-          console.log(`Removed metadata for missing file: ${basename}`);
         }
       }
     }
@@ -283,35 +268,23 @@ function cleanupOrphaned(dir: string) {
   if (metadataChanged && metadata) {
     try {
       fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
-      console.log(`Updated metadata at ${metadataPath}`);
     } catch (error) {
-      console.error(`Error writing metadata at ${metadataPath}:`, error);
     }
   }
 }
 
 // Main execution
 async function main() {
-  console.log('Starting media processing...');
-  console.log(`Processing directory: ${PHOTOS_DIR}`);
   
   try {
     await processDirectory(PHOTOS_DIR);
-    console.log('Media processing complete');
-    
-    console.log('Starting cleanup...');
     cleanupOrphaned(PHOTOS_DIR);
-    console.log('Cleanup complete');
   } catch (error) {
-    console.error('Error during processing:', error);
     process.exit(1);
   }
 }
 
 // Run the script
-console.log('Script starting...');
 main().catch(error => {
-  console.error('Fatal error:', error);
   process.exit(1);
 });
-console.log('Script initialized');

@@ -3,12 +3,14 @@ import { Lightbox } from "@/app/components/Lightbox";
 import { notFound } from "next/navigation";
 
 interface PageProps {
-  params: { id: string };
+  params: Promise<{ id: string }>
 }
 
-export default async function Page({ params }: PageProps) {
+export default async function Page({
+  params,
+}: PageProps) {
   const [item, allItems] = await Promise.all([
-    getMediaItemById(params.id),
+    getMediaItemById((await params).id),
     getAllMediaItems()
   ]);
   
