@@ -1,0 +1,130 @@
+# Cline Rules for Photo/Video Blog Project
+
+## Project Patterns
+
+### 1. File Organization
+- Media files go in `public/photos/[section-name]/`
+- Metadata YAML files in `data/[section-name].yaml`
+- One YAML file per folder of media
+- No individual file metadata, rely on file enumeration
+
+### 2. Naming Conventions
+- Folders: kebab-case (e.g., `winter-2024-trip`)
+- Files: kebab-case (e.g., `big-photo-1.jpg`)
+- Thumbnails: append `-thumb` (e.g., `big-photo-1-thumb.jpg`)
+- Video previews: append `-preview` (e.g., `big-video-1-preview.mp4`)
+- Slugs: combine folder and filename (e.g., `winter-2024-trip-big-photo-1`)
+
+### 3. Media Processing
+- Images: Generate 400px wide thumbnails with 80% JPEG quality
+- Videos: Extract thumbnail at 1s mark, create 3s 480p preview
+- Process during build time with npm run process-media
+- Store derivatives alongside originals with -thumb/-preview suffixes
+- Automatic cleanup of orphaned processed files
+
+### 4. Component Structure
+- Pages in `app/` directory
+- Components in `components/` directory
+- Utilities in `lib/` directory
+- Build scripts in `scripts/` directory
+
+### 5. Development Workflow
+1. Add media to appropriate folder in `public/photos/`
+2. Update or create YAML in `data/` if needed
+3. Run media processing script
+4. Build and test
+5. Deploy when ready
+
+## Implementation Guidelines
+
+### 1. Performance
+- Always use lazy loading for media
+- Generate appropriate thumbnails/previews
+- Optimize loading sequence
+- Consider viewport visibility
+
+### 2. Navigation
+- Keep navigation subtle but accessible
+- Ensure mobile-friendly interactions
+- Maintain smooth scrolling
+- Provide clear section indicators
+
+### 3. Media Display
+- Maintain aspect ratios
+- Use appropriate preview sizes
+- Handle loading states gracefully
+- Optimize for different screen sizes
+- Use justified grid layout with configurable spacing
+- Ensure full-width row justification
+- Support zero-spacing for seamless display
+- Allow independent horizontal/vertical spacing control
+
+### 4. Build Process
+- Automate media processing
+- Validate file organization
+- Check for missing derivatives
+- Ensure clean builds
+
+### 6. Gallery Configuration
+- Use GALLERY_CONFIG for spacing control
+- horizontalSpacing controls gap between photos in a row
+- verticalSpacing controls gap between rows
+- targetRowHeight determines base row height
+- Layout engine handles spacing in width calculations
+- CSS gap properties manage visual spacing
+- Support zero-spacing without breaking justification
+
+## Project Intelligence
+
+### Key Decisions
+1. Static generation over dynamic rendering
+2. File-based over database storage
+3. Folder-level over file-level metadata
+4. Build-time over runtime processing
+
+### Critical Paths
+1. Media processing must complete before build
+2. YAML files must match folder names
+3. Slugs must be unique across all sections
+4. Navigation requires section metadata
+
+### Optimization Priorities
+1. Initial page load performance
+2. Smooth scrolling experience
+3. Efficient media loading
+4. Responsive navigation
+
+## User Preferences
+- Minimal interface
+- Fast loading times
+- Easy navigation
+- High-quality media display
+- Simple content management
+
+## Known Challenges
+1. Handling large media files
+2. Managing build time processing
+3. Ensuring responsive performance
+4. Balancing quality and load time
+
+## Evolution Notes
+- Started with basic static site approach
+- Focused on simplicity and performance
+- Emphasized automated processing
+- Prioritized user experience
+
+## Tool Usage Patterns
+1. Media Processing
+   - Sharp for images
+   - FFmpeg for videos
+   - Automated scripts
+
+2. Build System
+   - Next.js static export
+   - TypeScript compilation
+   - TailwindCSS processing
+
+3. Development Tools
+   - ESLint for code quality
+   - Prettier for formatting
+   - TypeScript for type safety
