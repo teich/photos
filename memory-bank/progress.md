@@ -1,12 +1,15 @@
 # Progress Tracking
 
-## Current Status: Initial Setup Phase
+## Current Status: Core Features Phase
 
 ### Completed
 - [x] Project planning
 - [x] Architecture decisions
 - [x] Technical stack selection
 - [x] Documentation setup
+- [x] Server actions implementation
+- [x] Navigation system
+- [x] Basic media viewing
 
 ### In Progress
 1. **Project Infrastructure**
@@ -14,6 +17,7 @@
    - [x] TypeScript configuration
    - [x] TailwindCSS setup
    - [x] ESLint/Prettier configuration
+   - [x] Server components setup
 
 2. **Build System**
    - [x] Media processing scripts
@@ -26,31 +30,37 @@
      - [x] Justified grid implementation
      - [x] Configurable spacing system
      - [x] Full-width row justification
-   - [ ] Navigation system
-   - [ ] Media viewers
-   - [ ] Lazy loading implementation
+   - [x] Navigation system
+     - [x] Escape to grid
+     - [x] Arrow key navigation
+     - [x] Click to close
+   - [x] Media viewers
+     - [x] Image lightbox
+     - [ ] Video player
+   - [ ] Loading states
 
 ### Pending
 1. **Media Processing**
    - [x] Image optimization pipeline
-   - [x] Video processing pipeline
+   - [ ] Video processing pipeline
    - [x] Asset management system
    - [ ] CDN integration (if needed)
 
 2. **UI Components**
-   - [ ] Masonry grid implementation
-   - [ ] Navigation menu
-   - [ ] Media modal/viewer
-   - [ ] Loading states
+   - [x] Justified grid implementation
+   - [x] Navigation controls
+   - [x] Media lightbox
+   - [ ] Loading indicators
+   - [ ] Touch gestures
 
 3. **Performance Optimization**
-   - [ ] Lazy loading
-   - [ ] Image optimization
-   - [ ] Video streaming
-   - [ ] Navigation performance
+   - [ ] Image preloading
+   - [ ] Transition animations
+   - [ ] Cache management
+   - [ ] Mobile optimization
 
 ## Known Issues
-None at this stage (pre-implementation)
+None currently
 
 ## Upcoming Milestones
 
@@ -66,13 +76,22 @@ None at this stage (pre-implementation)
 
 ### Milestone 3: Core Features
 - [x] Gallery view functioning
-- [ ] Navigation working
-- [ ] Media viewing working
+- [x] Navigation working
+- [x] Media viewing working
+- [x] Server actions implemented
+
+### Milestone 4: Media Storage & Processing
+- [ ] Vercel Blob integration for videos
+- [ ] Automated video upload during deployment
+- [ ] Next/Image optimization for images
+- [ ] Preserve current media organization
+- [ ] Update media.ts for Blob URLs
 
 ### Milestone 4: Polish
 - [ ] Performance optimization
 - [ ] Mobile responsiveness
 - [ ] UI refinements
+- [ ] Loading states
 
 ## Testing Status
 
@@ -92,7 +111,7 @@ None at this stage (pre-implementation)
 - [ ] Navigation responsiveness
 
 ## Deployment Status
-- [ ] Development environment
+- [x] Development environment
 - [ ] Staging environment
 - [ ] Production environment
 
@@ -100,22 +119,22 @@ None at this stage (pre-implementation)
 - [x] Project brief
 - [x] Technical documentation
 - [x] Architecture documentation
-- [ ] API documentation
+- [x] Server actions documentation
 - [ ] Deployment guide
 - [ ] User guide
 
 ## Future Considerations
 1. **Performance Enhancements**
-   - CDN integration
-   - Further optimization
-   - Caching strategies
+   - Image preloading
+   - Transition animations
+   - Cache strategies
 
 2. **Feature Additions**
-   - Search functionality
-   - Filtering options
-   - Additional metadata
+   - Touch gestures
+   - Loading states
+   - Error handling
 
 3. **Maintenance**
-   - Backup strategies
-   - Update workflows
-   - Monitoring setup
+   - Error monitoring
+   - Analytics
+   - Performance tracking

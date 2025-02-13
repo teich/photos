@@ -3,7 +3,7 @@
 ## Development Stack
 
 ### Core Technologies
-- **Next.js**: Static site generation framework
+- **Next.js**: Server components and server actions
 - **TypeScript**: Type-safe development
 - **React**: UI component library
 - **TailwindCSS**: Utility-first styling
@@ -46,9 +46,6 @@ npm run process-media
 
 # Build for production
 npm run build
-
-# Export static site
-npm run export
 ```
 
 ## Technical Requirements
@@ -102,9 +99,14 @@ npm run export
 ```typescript
 // next.config.ts
 const nextConfig = {
-  output: 'export',
   images: {
-    unoptimized: true
+    unoptimized: true,
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '**',
+      },
+    ],
   }
 };
 
@@ -138,30 +140,32 @@ module.exports = {
 ## Development Constraints
 
 ### Build Process
-- Static site generation only
-- No server-side operations
+- Server components for dynamic rendering
+- Server actions for data operations
 - Pre-build media processing
 - Automated optimization
 
 ### Data Management
 - File-based content organization
-- YAML for metadata
+- JSON for metadata
 - No database requirements
-- Build-time data aggregation
+- Runtime data access
 
 ### Asset Handling
+- Next/Image for image optimization
+- Vercel Blob for video storage
 - Automated thumbnail generation
 - Video preview creation
-- Optimized delivery strategy
-- CDN-friendly structure
+- Section-based organization
 
 ## Deployment Requirements
 
-### Static Hosting
-- Any static file host
-- CDN support recommended
-- No server requirements
-- Simple cache configuration
+### Vercel Deployment
+- Server components enabled
+- Server actions for data access
+- Built-in image optimization
+- Blob storage for videos
+- Edge network delivery
 
 ### Environment Variables
 - None required in production
@@ -169,7 +173,7 @@ module.exports = {
 - Build-time configuration
 
 ### Build Artifacts
-- Static HTML/CSS/JS
+- Server components
+- Client components
 - Optimized media assets
 - Pre-generated thumbnails
-- Asset manifests

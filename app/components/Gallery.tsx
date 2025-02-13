@@ -69,7 +69,7 @@ export function Gallery({ items }: GalleryProps) {
               className="relative bg-gray-100 overflow-hidden"
               style={{ width: item.width }}
             >
-              <Link href={`/media/${item.id}`} className="block w-full h-full">
+              <Link href={`/${item.id}`} className="block w-full h-full">
                 {item.type === 'image' ? (
                   <Image
                     src={item.thumbnailUrl}

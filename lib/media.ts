@@ -83,10 +83,12 @@ async function getMediaItemsInSection(sectionDir: string): Promise<MediaItem[]> 
   try {
     const metadataContent = readFileSync(metadataPath, 'utf8');
     metadata = JSON.parse(metadataContent);
-    console.log(`Loaded metadata for section ${sectionDir}:`, metadata);
-  } catch (error: any) {
-    if (error.code !== 'ENOENT') {
-      console.error(`Error reading metadata for section ${sectionDir}:`, error);
+  } catch (error) {
+    // Type guard to check if error is a NodeJS.ErrnoException
+    if (error instanceof Error && 'code' in error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.error(`Error reading metadata for section ${sectionDir}:`, error);
+      }
     }
   }
 
@@ -135,8 +137,6 @@ async function getMediaItemsInSection(sectionDir: string): Promise<MediaItem[]> 
 
     items.push(item);
   }
-
-  console.log(`Found ${items.length} valid items in section ${sectionDir}`);
 
   // Sort items by filename
   return items.sort((a, b) => a.filename.localeCompare(b.filename));

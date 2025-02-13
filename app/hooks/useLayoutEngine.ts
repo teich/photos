@@ -19,23 +19,13 @@ interface LayoutOptions {
 }
 
 /**
- * Calculate layout score based on how well rows match target height
- */
-function calculateLayoutScore(rows: LayoutRow[], targetHeight: number): number {
-  return rows.reduce((score, row) => {
-    const heightDiff = Math.abs(row.height - targetHeight);
-    return score + heightDiff;
-  }, 0);
-}
-
-/**
  * Layout a single row of items
  */
 function layoutRow(
   items: MediaItem[],
   options: LayoutOptions
 ): LayoutRow {
-  const { containerWidth, targetRowHeight, spacing } = options;
+  const { containerWidth, spacing } = options;
   
   // Calculate total aspect ratio for the row
   const totalAspectRatio = items.reduce((sum, item) => {
@@ -82,13 +72,12 @@ function calculateLayout(
 ): LayoutRow[] {
   const { containerWidth, targetRowHeight, spacing, tolerance } = options;
   
-  let bestLayout: LayoutRow[] = [];
-  let bestScore = Infinity;
+  const bestLayout: LayoutRow[] = [];
 
   // Try different numbers of items per row
   let startIndex = 0;
   while (startIndex < items.length) {
-    let currentRow: MediaItem[] = [];
+    const currentRow: MediaItem[] = [];
     let currentWidth = 0;
     
     // Add items to row while tracking width
@@ -133,14 +122,14 @@ export function useLayoutEngine(
   containerWidth: number,
   options: Partial<LayoutOptions> = {}
 ) {
-  const layoutOptions: LayoutOptions = {
-    containerWidth,
-    targetRowHeight: options.targetRowHeight || 300,
-    spacing: options.spacing || 8,
-    tolerance: options.tolerance || 20
-  };
-
   return useMemo(() => {
+    const layoutOptions: LayoutOptions = {
+      containerWidth,
+      targetRowHeight: options.targetRowHeight || 300,
+      spacing: options.spacing || 8,
+      tolerance: options.tolerance || 20
+    };
+
     // Filter items without dimensions
     const validItems = items.filter(item => item.dimensions?.aspectRatio);
     
@@ -151,5 +140,5 @@ export function useLayoutEngine(
       rows,
       totalHeight: rows.reduce((sum, row) => sum + row.height, 0)
     };
-  }, [items, containerWidth, layoutOptions.targetRowHeight, layoutOptions.spacing, layoutOptions.tolerance]);
+  }, [items, containerWidth, options]);
 }

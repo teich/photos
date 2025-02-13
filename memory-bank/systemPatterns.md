@@ -2,20 +2,22 @@
 
 ## Architecture Overview
 
-### Static Site Generation
-- Next.js for static site generation
-- No runtime database requirements
-- Build-time data processing
-- Pre-rendered pages for optimal performance
+### Server Components with Server Actions
+- Next.js App Router with server components
+- Server actions for data operations
+- Runtime file system access
+- Dynamic page rendering
 
 ### File Structure
 ```
 my-photo-blog/
-├─ pages/              # Next.js pages
-├─ data/              # YAML metadata
+├─ app/                # Next.js App Router
+│  ├─ page.tsx        # Main gallery page
+│  ├─ [id]/           # Dynamic image routes
+│  └─ components/     # Shared components
 ├─ public/photos/     # Media files
 ├─ lib/               # Utilities
-└─ scripts/           # Build scripts
+└─ scripts/          # Build scripts
 ```
 
 ## Core Design Patterns
@@ -32,41 +34,61 @@ my-photo-blog/
   - Progress reporting and error handling
 
 ### 2. Data Management Pattern
-- **Folder-Level Metadata**
-  - YAML files for section metadata
-  - No individual file metadata
-  - Automated file enumeration
-  - Build-time data aggregation
+- **Server Actions**
+  - Direct file system access
+  - Runtime metadata loading
+  - Folder-based organization
+  - Automatic file discovery
 
 ### 3. Routing Pattern
-- **Dynamic Routes**
+- **Simple Dynamic Routes**
   - Gallery page (/)
-  - Detail pages (/photo/[slug])
-  - Static path generation
-  - SEO-friendly URLs
+  - Media pages (/[id])
+  - Clean URLs
+  - Standard navigation
 
 ### 4. Component Architecture
 - **Gallery Components**
-  - Masonry grid layout
+  - Justified grid layout
   - Lazy loading containers
   - Media type handlers
   - Navigation components
 
 ### 5. Navigation Pattern
-- **Responsive Navigation**
-  - Desktop: Hover-reveal nav
-  - Mobile: Hamburger menu
-  - Section-based organization
-  - Smooth scroll anchors
+- **Lightbox Navigation**
+  - Escape to grid view
+  - Left/right arrow navigation
+  - Click overlay to close
+  - Hover-reveal controls
 
 ## Technical Patterns
 
-### 1. Data Loading
+### 1. Media Storage Pattern
+- **Development Storage**
+  ```
+  public/photos/
+  ├── [section-folders]/    # e.g. "2024-baja"
+      ├── original.jpg      # Original files
+      ├── original-thumb.jpg # Generated thumbnail
+      ├── original-preview.mp4 # Generated video preview
+      └── metadata.json     # Dimensions and metadata
+  ```
+
+- **Production Storage**
+  - Images: Next/Image optimization on Vercel
+  - Videos: Vercel Blob storage
+  - Thumbnails/Previews: In git repository
+  - Metadata: In git repository
+
+### 2. Data Loading
 ```typescript
-// Build-time data loading pattern
-export async function getStaticProps() {
-  const mediaItems = loadMediaItems();
-  return { props: { mediaItems } };
+// Server action pattern
+'use server'
+
+export async function getMediaSections(): Promise<Section[]> {
+  // Direct file system access
+  const sections = await readSections();
+  return sections;
 }
 ```
 
@@ -106,20 +128,6 @@ async function processVideo(filePath: string): Promise<ProcessingResult> {
 }
 ```
 
-### 3. Route Generation
-```typescript
-// Dynamic route pattern
-export async function getStaticPaths() {
-  const items = loadMediaItems();
-  return {
-    paths: items.map(item => ({
-      params: { slug: item.slug }
-    })),
-    fallback: false
-  };
-}
-```
-
 ## Performance Patterns
 
 ### 1. Lazy Loading
@@ -135,10 +143,10 @@ export async function getStaticPaths() {
 - Format optimization
 
 ### 3. Navigation Performance
-- Client-side navigation
-- Preloaded section data
-- Smooth scroll implementation
-- Minimal initial payload
+- Standard page transitions
+- Built-in Next.js caching
+- Smooth animations
+- Minimal client state
 
 ## Component Patterns
 
@@ -199,23 +207,11 @@ function layoutRow(items: MediaItem[], options: LayoutOptions): LayoutRow {
 }
 ```
 
-#### Spacing Implementation
+### 3. Lightbox Component
 ```typescript
-// CSS-based spacing pattern using gap
-<div style={{ display: 'flex', flexDirection: 'column', gap: `${verticalSpacing}px` }}>
-  {rows.map(row => (
-    <div style={{ display: 'flex', gap: `${horizontalSpacing}px` }}>
-      {/* Row items */}
-    </div>
-  ))}
-</div>
-```
-
-### 3. Navigation Components
-```typescript
-interface NavProps {
-  sections: Section[];
-  currentSection?: string;
+interface LightboxProps {
+  item: MediaItem;
+  allItems: MediaItem[];
 }
 ```
 
@@ -223,12 +219,11 @@ interface NavProps {
 
 ### 1. Development Flow
 1. Add media to folders
-2. Update section YAML if needed
-3. Run thumbnail generation
-4. Build static site
+2. Run thumbnail generation
+3. Start development server
+4. Media loads dynamically
 
 ### 2. Deployment Flow
 1. Process all media
-2. Generate static pages
-3. Deploy static assets
-4. Update CDN if used
+2. Deploy to Vercel
+3. Server components handle dynamic loading

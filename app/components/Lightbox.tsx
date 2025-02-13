@@ -17,12 +17,12 @@ export function Lightbox({ item, allItems }: LightboxProps) {
   const currentIndex = allItems.findIndex(i => i.id === item.id);
 
   const close = useCallback(() => {
-    router.replace('/'); // Use replace instead of push to handle modal context
+    router.push('/');
   }, [router]);
 
   const navigateToItem = useCallback((index: number) => {
     if (index >= 0 && index < allItems.length) {
-      router.push(`/media/${allItems[index].id}`);
+      router.push(`/${allItems[index].id}`);
     }
   }, [allItems, router]);
 
