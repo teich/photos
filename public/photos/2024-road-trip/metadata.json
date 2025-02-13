@@ -1,0 +1,34 @@
+{
+  "images": {
+    "2024-10-20-081531-001.jpg": {
+      "width": 2500,
+      "height": 837,
+      "aspectRatio": 2.986857825567503,
+      "originalFilename": "IMG_1487_jpg.jpg"
+    },
+    "2024-10-20-112557-001.jpg": {
+      "width": 1875,
+      "height": 2500,
+      "aspectRatio": 0.75,
+      "originalFilename": "IMG_1501.jpg"
+    },
+    "2024-10-20-113232-001.jpg": {
+      "width": 1875,
+      "height": 2500,
+      "aspectRatio": 0.75,
+      "originalFilename": "IMG_1506_jpg.jpg"
+    },
+    "2024-10-20-173048-001.jpg": {
+      "width": 2500,
+      "height": 1602,
+      "aspectRatio": 1.5605493133583022,
+      "originalFilename": "IMG_1536_jpg.jpg"
+    },
+    "2024-10-21-083932-001.jpg": {
+      "width": 2500,
+      "height": 844,
+      "aspectRatio": 2.962085308056872,
+      "originalFilename": "IMG_1541.jpg"
+    }
+  }
+}

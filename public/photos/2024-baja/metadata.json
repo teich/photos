@@ -1,0 +1,22 @@
+{
+  "images": {
+    "2024-12-19-151806-001.jpg": {
+      "width": 2500,
+      "height": 1406,
+      "aspectRatio": 1.7780938833570412,
+      "originalFilename": "DJI_20241219151806_0052_D.jpg"
+    },
+    "2024-12-22-163719-001.jpg": {
+      "width": 2500,
+      "height": 1406,
+      "aspectRatio": 1.7780938833570412,
+      "originalFilename": "DJI_20241222163719_0087_D.jpg"
+    },
+    "2024-12-25-141337-001.jpg": {
+      "width": 2500,
+      "height": 1406,
+      "aspectRatio": 1.7780938833570412,
+      "originalFilename": "DJI_20241225141337_0114_D.jpg"
+    }
+  }
+}

@@ -15,7 +15,8 @@ my-photo-blog/
 │  ├─ page.tsx        # Main gallery page
 │  ├─ [id]/           # Dynamic image routes
 │  └─ components/     # Shared components
-├─ public/photos/     # Media files
+├─ photos/            # Original media files
+├─ public/photos/     # Web-optimized assets
 ├─ lib/               # Utilities
 └─ scripts/          # Build scripts
 ```
@@ -24,10 +25,10 @@ my-photo-blog/
 
 ### 1. Media Processing Pattern
 - **Pre-Build Processing**
-  - Automated thumbnail generation (400px width)
+  - Automated thumbnail generation (800px width)
   - Video preview generation (3s, 480p)
   - Integrated with build pipeline
-  - Sharp for image optimization (80% quality)
+  - Sharp for image optimization (85% quality)
   - FFmpeg for video processing
   - Suffix-based naming (-thumb, -preview)
   - Orphaned file cleanup
@@ -64,21 +65,32 @@ my-photo-blog/
 ## Technical Patterns
 
 ### 1. Media Storage Pattern
+- **Source Storage**
+  ```
+  photos/                   # Original media files
+  ├── [section-folders]/    # e.g. "2024-baja"
+      ├── photo1.jpg        # Original images
+      └── video1.mp4        # Original videos
+  ```
+
 - **Development Storage**
   ```
-  public/photos/
-  ├── [section-folders]/    # e.g. "2024-baja"
-      ├── original.jpg      # Original files
-      ├── original-thumb.jpg # Generated thumbnail
-      ├── original-preview.mp4 # Generated video preview
+  public/photos/            # Web-optimized assets
+  ├── [section-folders]/    # Matches original section
+      ├── photo1.jpg        # Full-size copy for web
+      ├── photo1-thumb.jpg  # Generated thumbnail
+      ├── video1-thumb.jpg  # Video thumbnail
+      ├── video1-preview.mp4 # Generated preview
       └── metadata.json     # Dimensions and metadata
   ```
 
 - **Production Storage**
-  - Images: Next/Image optimization on Vercel
-  - Videos: Vercel Blob storage
-  - Thumbnails/Previews: In git repository
-  - Metadata: In git repository
+  - Original files: Not in git, stored locally in `/photos`
+  - Web-optimized images: In git under `/public/photos`, optimized by Next/Image on Vercel
+  - Thumbnails/Previews: In git under `/public/photos`
+  - Large videos: Uploaded to Vercel Blob storage
+  - Video previews: In git under `/public/photos` (3s, 480p)
+  - Metadata: In git under `/public/photos/[section]/metadata.json`
 
 ### 2. Data Loading
 ```typescript
@@ -103,11 +115,11 @@ interface ProcessingResult {
 // Image processing
 async function processImage(filePath: string): Promise<ProcessingResult> {
   return sharp(filePath)
-    .resize(400, null, {
+    .resize(800, null, {
       withoutEnlargement: true,
       fit: 'inside'
     })
-    .jpeg({ quality: 80 })
+    .jpeg({ quality: 85 })
     .toFile(thumbPath);
 }
 
@@ -117,7 +129,7 @@ async function processVideo(filePath: string): Promise<ProcessingResult> {
   await ffmpeg(filePath).screenshots({
     timestamps: ['1'],
     filename: `${basename}-thumb.jpg`,
-    size: '400x?'
+    size: '800x?'
   });
   
   // Generate preview

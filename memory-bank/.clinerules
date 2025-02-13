@@ -3,9 +3,10 @@
 ## Project Patterns
 
 ### 1. File Organization
-- Media files go in `public/photos/[section-name]/`
-- Metadata YAML files in `data/[section-name].yaml`
-- One YAML file per folder of media
+- Original media files go in `photos/[section-name]/`
+- Web-optimized files go in `public/photos/[section-name]/`
+- Metadata JSON files in `public/photos/[section-name]/metadata.json`
+- One metadata.json file per folder of media
 - No individual file metadata, rely on file enumeration
 
 ### 2. Naming Conventions
@@ -16,10 +17,12 @@
 - Slugs: combine folder and filename (e.g., `winter-2024-trip-big-photo-1`)
 
 ### 3. Media Processing
-- Images: Generate 400px wide thumbnails with 80% JPEG quality
-- Videos: Extract thumbnail at 1s mark, create 3s 480p preview
+- Original files stored in `/photos` (not in git)
+- Images: Copy to `/public/photos` and generate 800px thumbnails with 85% JPEG quality
+- Videos: Extract thumbnail at 1s mark, create 3s 480p preview in `/public/photos`
+- Large videos will be uploaded to Vercel Blob storage
 - Process during build time with npm run process-media
-- Store derivatives alongside originals with -thumb/-preview suffixes
+- All web assets in `/public/photos` are committed to git
 - Automatic cleanup of orphaned processed files
 
 ### 4. Component Structure
@@ -29,11 +32,10 @@
 - Build scripts in `scripts/` directory
 
 ### 5. Development Workflow
-1. Add media to appropriate folder in `public/photos/`
-2. Update or create YAML in `data/` if needed
-3. Run media processing script
-4. Build and test
-5. Deploy when ready
+1. Add media to appropriate folder in `photos/`
+2. Run media processing script (generates web assets in public/photos)
+3. Build and test
+4. Deploy when ready
 
 ## Implementation Guidelines
 
