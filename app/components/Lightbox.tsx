@@ -171,23 +171,22 @@ export function Lightbox({ item, allItems }: LightboxProps) {
     >
       <div className="relative w-full h-full flex items-center justify-center group">
         {item.type === "image" ? (
-          <div className="relative">
+          <div className="relative h-screen w-screen">
             {isNavigating && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50">
                 <div className="animate-spin rounded-full h-12 w-12 border-4 border-white border-t-transparent"></div>
               </div>
             )}
             <Image
               src={item.url}
               alt={item.filename}
-              className={`max-h-screen max-w-full w-auto h-auto object-contain transition-opacity duration-300 ${
+              className={`transition-opacity duration-300 ${
                 isNavigating ? 'opacity-50' : 'opacity-100'
               }`}
-              width={item.dimensions?.width || 1920}
-              height={item.dimensions?.height || 1080}
+              fill
+              style={{ objectFit: 'contain' }}
               onClick={(e) => e.stopPropagation()}
               priority={true}
-              loading="eager"
               sizes="100vw"
               quality={90}
             />
