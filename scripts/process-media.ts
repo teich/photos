@@ -18,8 +18,13 @@ const s3Client = new S3Client({
   }
 });
 
-// R2 bucket name
+// R2 bucket name and domain
 const BUCKET_NAME = 'photos';
+const DOMAIN = process.env.NEXT_PUBLIC_DOMAIN;
+
+if (!DOMAIN) {
+  throw new Error('NEXT_PUBLIC_DOMAIN environment variable is required');
+}
 
 interface ExifData {
   Photo?: {
@@ -274,7 +279,7 @@ async function uploadToR2(filePath: string, contentHash: string, dateStr?: strin
 
     // Construct the object key
     const key = `${directory}/${datePath}${contentHash}${ext}`;
-    const publicUrl = `${process.env.S3_ENDPOINT}/${BUCKET_NAME}/${key}`;
+    const publicUrl = `${DOMAIN}/${key}`;
 
     // Check if object already exists
     if (await checkObjectExists(key)) {
@@ -696,7 +701,7 @@ async function uploadMetadata(): Promise<string> {
     await s3Client.send(latestCommand);
 
     process.stdout.write('done\n');
-    return `${process.env.S3_ENDPOINT}/${BUCKET_NAME}/${versionedKey}`;
+    return `${DOMAIN}/metadata/latest.json`;
   } catch (error) {
     console.error('Error uploading metadata:', error);
     throw error;

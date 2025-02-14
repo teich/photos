@@ -3,10 +3,12 @@
 import { join } from 'path';
 import { cache } from 'react';
 
-const METADATA_URL = process.env.NEXT_PUBLIC_METADATA_URL;
-if (!METADATA_URL) {
-  throw new Error('NEXT_PUBLIC_METADATA_URL environment variable is required');
+const DOMAIN = process.env.NEXT_PUBLIC_DOMAIN;
+if (!DOMAIN) {
+  throw new Error('NEXT_PUBLIC_DOMAIN environment variable is required');
 }
+
+const METADATA_URL = `${DOMAIN}/metadata/latest.json`;
 
 // Cache the metadata fetch to avoid repeated requests
 const getMetadataFromBlob = cache(async () => {
