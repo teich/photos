@@ -3,10 +3,11 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useLayoutEngine } from "../hooks/useLayoutEngine";
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useMemo } from "react";
 import { MediaItem } from "@/lib/media";
 import { usePathname } from "next/navigation";
 import { useRouterState } from "../hooks/useRouterState";
+import { useScaleFactor } from "../hooks/useScaleFactor";
 
 interface GalleryProps {
   items: MediaItem[];
@@ -20,12 +21,12 @@ const GALLERY_CONFIG = {
 
 export function Gallery({ items }: GalleryProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [containerWidth, setContainerWidth] = useState(0);
+  const DESKTOP_WIDTH = 1200; // Match with useScaleFactor
   const pathname = usePathname();
   const [getLastViewedImage] = useRouterState<string>('lastViewedImage');
 
-  // Calculate layout
-  const { rows } = useLayoutEngine(items, containerWidth, {
+  // Calculate layout using fixed desktop width
+  const { rows } = useLayoutEngine(items, DESKTOP_WIDTH, {
     targetRowHeight: GALLERY_CONFIG.targetRowHeight,
     spacing: GALLERY_CONFIG.horizontalSpacing,
     tolerance: 20
@@ -37,22 +38,9 @@ export function Gallery({ items }: GalleryProps) {
   // Check if the target image is in our items list
   const targetImageInItems = items.some(item => item.id === currentImageId);
 
-  // Update container width on resize
-  useEffect(() => {
-    const updateWidth = () => {
-      if (containerRef.current) {
-        setContainerWidth(containerRef.current.offsetWidth);
-      }
-    };
-
-    updateWidth();
-    window.addEventListener('resize', updateWidth);
-    return () => window.removeEventListener('resize', updateWidth);
-  }, []);
-
   // Calculate and set scroll position when current image changes
   useEffect(() => {
-    if (!currentImageId || !containerWidth || rows.length === 0 || !targetImageInItems) {
+    if (!currentImageId || rows.length === 0 || !targetImageInItems) {
       return;
     }
 
@@ -80,13 +68,58 @@ export function Gallery({ items }: GalleryProps) {
     }, 0);
 
     return () => clearTimeout(timeoutId);
-  }, [rows, currentImageId, containerWidth, targetImageInItems]);
+  }, [rows, currentImageId, targetImageInItems]);
+
+  const scale = useScaleFactor();
+  
+  // Calculate styles with scaling
+  const [windowWidth, setWindowWidth] = useState(0);
+
+  // Handle window width updates
+  useEffect(() => {
+    const updateWidth = () => setWindowWidth(window.innerWidth);
+    updateWidth();
+
+    window.addEventListener('resize', updateWidth);
+    return () => window.removeEventListener('resize', updateWidth);
+  }, []);
+
+  const styles = useMemo(() => {
+    // Calculate the scaled width to adjust wrapper padding
+    const scaledWidth = DESKTOP_WIDTH * scale;
+    const horizontalPadding = windowWidth ? Math.max(0, (windowWidth - scaledWidth) / 2) : 20;
+    
+    return {
+      wrapper: {
+        width: '100%',
+        minHeight: '100vh',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'flex-start',
+        padding: '20px 0',
+        overflow: 'hidden',
+        opacity: windowWidth ? 1 : 0, // Prevent layout shift
+        transition: 'opacity 0.2s ease-in'
+      },
+      container: {
+        display: 'flex',
+        flexDirection: 'column' as const,
+        gap: `${GALLERY_CONFIG.verticalSpacing}px`,
+        width: `${DESKTOP_WIDTH}px`,
+        transform: `scale(${scale})`,
+        transformOrigin: 'center top',
+        willChange: 'transform',
+        transition: 'transform 0.2s ease-out'
+      }
+    };
+  }, [scale, windowWidth]);
 
   return (
-    <div 
-      ref={containerRef} 
-      style={{ display: 'flex', flexDirection: 'column', gap: `${GALLERY_CONFIG.verticalSpacing}px` }}
-    >
+    <div style={styles.wrapper}>
+      <div 
+        ref={containerRef}
+        style={styles.container}
+      >
       {rows.map((row, rowIndex) => (
         <div 
           key={rowIndex}
@@ -111,7 +144,7 @@ export function Gallery({ items }: GalleryProps) {
                     height={Math.round(item.height)}
                     priority={rowIndex === 0}
                     className="object-cover w-full h-full hover:opacity-95 transition-opacity duration-300"
-                    sizes={`${Math.round((item.width / containerWidth) * 100)}vw`}
+                    sizes={`${Math.round((item.width / DESKTOP_WIDTH) * 100)}vw`}
                   />
                 ) : (
                   <div className="relative h-full">
@@ -122,7 +155,7 @@ export function Gallery({ items }: GalleryProps) {
                       height={Math.round(item.height)}
                       priority={rowIndex === 0}
                       className="object-cover w-full h-full hover:opacity-95 transition-opacity duration-300"
-                      sizes={`${Math.round((item.width / containerWidth) * 100)}vw`}
+                      sizes={`${Math.round((item.width / DESKTOP_WIDTH) * 100)}vw`}
                     />
                     <div className="absolute inset-0 flex items-center justify-center bg-black/20 pointer-events-none">
                       <svg className="w-12 h-12 text-white" fill="currentColor" viewBox="0 0 24 24">
@@ -136,6 +169,7 @@ export function Gallery({ items }: GalleryProps) {
           ))}
         </div>
       ))}
+      </div>
     </div>
   );
 }

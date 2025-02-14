@@ -266,20 +266,44 @@ interface MediaProps {
 ### 2. Layout Components
 
 #### Justified Grid Layout
+
+The gallery uses a sophisticated layout engine that maintains a consistent desktop-like experience across all devices:
+
 ```typescript
 // Configuration pattern
 interface GalleryConfig {
   horizontalSpacing: number;  // Spacing between photos in a row
   verticalSpacing: number;    // Spacing between rows
   targetRowHeight: number;    // Target height for each row
+  desktopWidth: number;      // Fixed desktop layout width (1200px)
 }
 
 // Layout engine pattern
 interface LayoutOptions {
-  containerWidth: number;
   targetRowHeight: number;
   spacing: number;
   tolerance: number;
+}
+
+// Scale factor hook for responsive scaling
+function useScaleFactor() {
+  const [scale, setScale] = useState(1);
+  const [windowWidth, setWindowWidth] = useState(
+    typeof window !== 'undefined' ? window.innerWidth : DESKTOP_WIDTH
+  );
+
+  // Calculate scale based on available width
+  useEffect(() => {
+    const availableWidth = windowWidth - PADDING;
+    if (availableWidth >= DESKTOP_WIDTH) {
+      setScale(1);
+    } else {
+      const calculatedScale = availableWidth / DESKTOP_WIDTH;
+      setScale(Math.max(calculatedScale, MIN_SCALE));
+    }
+  }, [windowWidth]);
+
+  return scale;
 }
 
 // Layout calculation pattern
@@ -290,8 +314,8 @@ function layoutRow(items: MediaItem[], options: LayoutOptions): LayoutRow {
 
   // 2. Calculate available width accounting for spacing
   const availableWidth = spacing > 0 
-    ? containerWidth - ((items.length - 1) * spacing)
-    : containerWidth;
+    ? DESKTOP_WIDTH - ((items.length - 1) * spacing)
+    : DESKTOP_WIDTH;
 
   // 3. Calculate base dimensions
   const rowHeight = availableWidth / totalAspectRatio;
@@ -304,12 +328,40 @@ function layoutRow(items: MediaItem[], options: LayoutOptions): LayoutRow {
   
   // 5. Apply proportional scaling for exact container width
   const totalWidth = layoutItems.reduce((sum, item) => sum + item.width, 0);
-  const scaleFactor = containerWidth / totalWidth;
+  const scaleFactor = DESKTOP_WIDTH / totalWidth;
   layoutItems.forEach(item => item.width *= scaleFactor);
 
   return { items: layoutItems, height: rowHeight };
 }
+
+// Responsive container styles
+const styles = {
+  wrapper: {
+    width: '100%',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+    overflow: 'hidden',
+    opacity: windowWidth ? 1 : 0,
+    transition: 'opacity 0.2s ease-in'
+  },
+  container: {
+    width: `${DESKTOP_WIDTH}px`,
+    transform: `scale(${scale})`,
+    transformOrigin: 'center top',
+    willChange: 'transform',
+    transition: 'transform 0.2s ease-out'
+  }
+};
 ```
+
+Key features:
+- Uses fixed desktop width (1200px) for layout calculations
+- Scales entire layout proportionally on smaller screens
+- Maintains consistent visual rhythm across devices
+- Smooth transitions for scaling and opacity changes
+- Proper SSR handling with opacity transitions
+- Performance optimized with willChange and debounced updates
 
 ### 3. Lightbox Component
 ```typescript

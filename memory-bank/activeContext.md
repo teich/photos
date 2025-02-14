@@ -2,187 +2,180 @@
 
 ## Current Focus
 
-### Project Phase: Blob Storage Migration
-We are migrating all media to Vercel Blob storage for improved scalability and maintainability. The plan includes:
+### Project Phase: Gallery Layout Enhancement
+We've improved the gallery layout system to provide a consistent desktop-like experience across all devices:
 
-1. **Media Storage Strategy**
-   - Move all media (images and videos) to Vercel Blob
-   - Remove media files from git completely
-   - Use content-based hashing for idempotent uploads
-   - Single root-level metadata.json
+1. **Layout Strategy**
+   - Fixed desktop width (1200px) for layout calculations
+   - CSS transform scaling for smaller screens
+   - Maintains sophisticated row-based layout engine
+   - Smooth transitions and performance optimizations
 
-2. **Processing Pipeline**
+2. **Implementation Pattern**
    ```typescript
-   photos/[section]/           → process-media → /tmp/processed/[section]/ → upload to blob → cleanup /tmp
-   original.{jpg,mp4}         →  ┌─ original.{jpg,mp4} → blob://[hash]
-                                └─ thumb.{jpg} → blob://[hash]
-                                └─ preview.mp4 (for videos) → blob://[hash]
+   // Calculate layout at desktop width
+   const { rows } = useLayoutEngine(items, DESKTOP_WIDTH, {
+     targetRowHeight: 300,
+     spacing: 0,
+     tolerance: 20
+   });
+
+   // Scale entire layout for mobile
+   const styles = {
+     wrapper: {
+       display: 'flex',
+       justifyContent: 'center'
+     },
+     container: {
+       width: '1200px',
+       transform: `scale(${scale})`,
+       transformOrigin: 'center top'
+     }
+   };
    ```
 
 3. **Development Workflow**
-   - Process media with npm run process-media
-   - Use /tmp for intermediate processing
-   - Upload to blob with content hashing
-   - Clean build process (npm run build)
+   - Layout engine calculates at desktop width
+   - CSS transform scales entire layout
+   - Smooth transitions handle resizing
+   - SSR-compatible with opacity transitions
 
 ## Recent Decisions
 
 ### Architecture Decisions
-1. **Storage Structure**
-   - Remove /public/photos completely
-   - Use /tmp for intermediate processing
-   - Store all media in Vercel Blob
-   - Single metadata.json at root
+1. **Layout System**
+   - Keep sophisticated layout engine
+   - Use fixed desktop width
+   - Scale entire layout for mobile
+   - Center content with flexbox
 
-2. **Data Management**
+2. **Responsive Strategy**
    ```typescript
-   {
-     sections: {
-       [sectionName: string]: {
-         items: {
-           id: string,
-           originalUrl: string,  // blob URL
-           thumbUrl: string,     // blob URL
-           previewUrl?: string,  // blob URL for videos
-           dimensions: {
-             width: number,
-             height: number,
-             aspectRatio: number
-           },
-           type: 'image' | 'video'
-         }[]
-       }
-     }
+   interface LayoutConfig {
+     desktopWidth: 1200,    // Fixed layout width
+     minScale: 0.3,         // Minimum scale factor
+     targetRowHeight: 300,  // Ideal row height
+     spacing: 0            // Gap between items
    }
    ```
 
-3. **Build Process**
+3. **Performance Optimizations**
    ```mermaid
    graph TD
-       A[Add media to /photos] --> B[npm run process-media]
-       B --> C[Process to /tmp]
-       C --> D[Upload to blob]
-       D --> E[Generate metadata.json]
-       E --> F[Cleanup /tmp]
-       F --> G[npm run build]
-       G --> H[Deploy to Vercel]
+       A[Window Resize] --> B[Debounced Update]
+       B --> C[Calculate Scale]
+       C --> D[Transform Layout]
+       D --> E[Smooth Transition]
    ```
+
 ## Active Considerations
 
 ### Implementation Strategy
-1. **Media Processing**
-   - Content-based hashing for idempotency
-   - Efficient blob uploads
-   - Progress reporting
-   - Error handling
+1. **Layout Engine**
+   - Fixed desktop width calculations
+   - Proportional scaling system
+   - Smooth transitions
+   - SSR compatibility
 
 2. **Performance**
-   - Blob URL caching
-   - Optimized metadata loading
-   - Efficient media delivery
-   - CDN integration
+   - Debounced resize handling
+   - willChange: transform
+   - Opacity transitions
+   - Centered layouts
 
 ### Development Flow
-1. **Content Updates**
-   - Simplified media processing
-   - Automated blob uploads
-   - Clean build process
-   - Error recovery
+1. **Layout Updates**
+   - Maintain layout engine logic
+   - Add scaling system
+   - Improve transitions
+   - Handle SSR edge cases
 
-2. **Build Pipeline**
-   - Separate media processing from build
-   - Efficient temporary storage
-   - Reliable cleanup
-   - Progress monitoring
+2. **Testing Focus**
+   - Layout consistency
+   - Scaling behavior
+   - Transition smoothness
+   - Mobile experience
 
 ## Next Steps
 
 ### Immediate Tasks
-1. ✓ **Script Updates**
-   - ✓ Modify process-media.ts for blob uploads
-   - ✓ Implement content hashing
-   - ✓ Add progress reporting
-   - ✓ Handle errors gracefully
+1. ✓ **Layout Improvements**
+   - ✓ Fixed desktop width layout
+   - ✓ Mobile scaling system
+   - ✓ Smooth transitions
+   - ✓ SSR compatibility
 
 2. **Testing & Validation**
-   - Test with sample images
-   - Test with sample videos
-   - Verify metadata structure
-   - Check blob URLs
+   - Test on various devices
+   - Verify scaling behavior
+   - Check transition smoothness
+   - Validate SSR handling
 
-2. **Code Changes**
-   - Update lib/media.ts for blob URLs
-   - Modify Gallery/Lightbox components
-   - Implement URL caching
-   - Update type definitions
+3. **Code Refinements**
+   - Fine-tune transitions
+   - Optimize performance
+   - Improve error handling
+   - Add loading states
 
-3. **Infrastructure**
-   - Configure Vercel Blob storage
-   - Set up temporary storage
-   - Update build process
-   - Test deployment flow
+### Implementation Notes
 
-## Implementation Notes
+#### Current Priorities
+1. Monitor scaling performance
+2. Fine-tune transitions
+3. Add loading states
+4. Improve error handling
 
-### Current Priorities
-1. Implement blob storage migration
-2. Update media processing
-3. Modify component code
-4. Test and validate changes
+#### Known Constraints
+1. ✓ Minimum scale factor (0.3)
+2. ✓ Fixed desktop width (1200px)
+3. ✓ SSR compatibility
+4. ✓ Smooth transitions
 
-### Known Constraints
-1. Build process separation
-2. ✓ Temporary storage management (using /tmp)
-3. ✓ Idempotent processing (using content hashing)
-4. ✓ Error handling requirements
-
-### Implementation Progress
+#### Implementation Progress
 1. **Completed**
-   - Blob storage configuration
-   - Content-based hashing
-   - Temporary directory management
-   - Progress reporting
-   - Error handling
-   - Metadata structure
-   - Media processing script
-   - Media library updates
+   - Fixed desktop width layout
+   - Mobile scaling system
+   - Smooth transitions
+   - SSR compatibility
+   - Performance optimizations
+   - Centered layouts
 
 2. **Testing Setup**
-   - test-media.ts script for validating:
-     - Section loading
-     - Media item retrieval
-     - Metadata structure
-     - Blob URL access
-     - Content hashing
-   - Progress reporting in process-media.ts
-   - Temporary file cleanup
-   - Error handling validation
+   - Layout consistency
+   - Scaling behavior
+   - Transition smoothness
+   - Mobile experience
+   - SSR validation
 
 3. **In Progress**
-   - Testing and validation
-   - Component updates
-   - URL caching strategy
+   - Performance monitoring
+   - Transition refinements
+   - Loading states
+   - Error handling
 
 4. **Next Up**
-   - Run test suite with sample media
-   - Modify Gallery/Lightbox components
-   - Implement URL caching
-   - Test deployment flow
+   - Add loading indicators
+   - Improve error states
+   - Fine-tune animations
+   - Optimize performance
 
 ### Testing Strategy
-1. **Media Processing**
-   ```bash
-   # Process media files
-   npm run process-media
+1. **Layout Validation**
+   ```typescript
+   // Verify layout consistency
+   const { rows } = useLayoutEngine(items, DESKTOP_WIDTH, config);
+   expect(rows).toMatchSnapshot();
 
-   # Validate results
-   npm run test-media
+   // Test scaling behavior
+   const scale = useScaleFactor();
+   expect(scale).toBeLessThanOrEqual(1);
+   expect(scale).toBeGreaterThanOrEqual(MIN_SCALE);
    ```
 
 2. **Validation Points**
-   - Metadata structure
-   - Blob URL accessibility
-   - Content hash verification
-   - Section organization
-   - Thumbnail generation
-   - Video preview creation
+   - Layout consistency
+   - Scaling behavior
+   - Transition smoothness
+   - SSR compatibility
+   - Mobile experience
+   - Performance metrics
