@@ -5,8 +5,21 @@ import sharp from 'sharp';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import exifReader from 'exif-reader';
-import { put } from '@vercel/blob';
+import { S3Client, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import crypto from 'crypto';
+
+// Configure S3 client for R2
+const s3Client = new S3Client({
+  region: 'auto',
+  endpoint: process.env.S3_ENDPOINT!,
+  credentials: {
+    accessKeyId: process.env.ACCESS_KEY_ID!,
+    secretAccessKey: process.env.SECRET_ACCESS_KEY!
+  }
+});
+
+// R2 bucket name
+const BUCKET_NAME = 'photos';
 
 interface ExifData {
   Photo?: {
@@ -30,9 +43,9 @@ const TMP_METADATA_PATH = path.join(TMP_DIR, 'metadata.json');  // Temporary met
 // In-memory metadata state
 let processingState: { sections: { [key: string]: SectionMetadata } } = { sections: {} };
 
-// Ensure BLOB_READ_WRITE_TOKEN is set
-if (!process.env.BLOB_READ_WRITE_TOKEN) {
-  console.error('Error: BLOB_READ_WRITE_TOKEN environment variable is not set');
+// Ensure R2 credentials are set
+if (!process.env.ACCESS_KEY_ID || !process.env.SECRET_ACCESS_KEY || !process.env.S3_ENDPOINT) {
+  console.error('Error: R2 credentials are not properly configured');
   process.exit(1);
 }
 
@@ -91,102 +104,20 @@ interface BlobUploadResult {
   error?: string;
 }
 
-/**
- * Check if a blob exists at the given URL
- */
-async function checkBlobExists(url: string): Promise<boolean> {
-  try {
-    const response = await fetch(url, { method: 'HEAD' });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Find existing metadata entry by content hash
- */
-function findExistingByHash(
-  hash: string,
-  metadata: { sections: { [key: string]: SectionMetadata } }
-): { section: string; filename: string; metadata: MediaMetadata } | undefined {
-  for (const [section, sectionData] of Object.entries(metadata.sections)) {
-    for (const [filename, itemData] of Object.entries(sectionData.images)) {
-      if (itemData.contentHash === hash) {
-        return { section, filename, metadata: itemData };
-      }
-    }
-  }
-  return undefined;
-}
-
-/**
- * Get date-based path components
- */
-function getDateBasedPath(dateStr: string): { year: string; month: string } {
-  const date = new Date(dateStr);
-  return {
-    year: date.getFullYear().toString(),
-    month: (date.getMonth() + 1).toString().padStart(2, '0')
-  };
-}
-
-/**
- * Upload a file to blob storage if it doesn't already exist
- */
-async function uploadToBlob(filePath: string, contentHash: string, dateStr?: string): Promise<BlobUploadResult> {
-  try {
-    const fileContent = fs.readFileSync(filePath);
-    const ext = path.extname(filePath);
-    const isThumb = filePath.includes('-thumb');
-    const isPreview = filePath.includes('-preview');
-    
-    // Determine the appropriate directory
-    let directory = 'originals';
-    if (isThumb) {
-      directory = 'thumbs';
-    } else if (isPreview) {
-      directory = 'previews';
-    }
-
-    // Get date-based path if available
-    let datePath = '';
-    if (dateStr) {
-      const { year, month } = getDateBasedPath(dateStr);
-      datePath = `${year}/${month}/`;
-    }
-
-    // Construct the full path and URL
-    const filename = `photos/${directory}/${datePath}${contentHash}${ext}`;
-    const expectedUrl = `https://gaaujfp2apep35qw.public.blob.vercel-storage.com/${filename}`;
-
-    // Check if blob already exists
-    if (await checkBlobExists(expectedUrl)) {
-      process.stdout.write('s'); // 's' for skipped
-      return { success: true, url: expectedUrl };
-    }
-
-    // Upload if doesn't exist
-    const { url } = await put(filename, fileContent, {
-      access: 'public',
-      addRandomSuffix: false // Use exact filename based on content hash
-    });
-
-    process.stdout.write('+'); // '+' for uploaded
-    return { success: true, url };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error during blob upload'
-    };
-  }
-}
-
 interface ProcessingResult {
   success: boolean;
   error?: string;
   dimensions?: MediaMetadata;
   newFilename?: string;
+}
+
+/**
+ * Ensure directory exists, create if it doesn't
+ */
+function ensureDir(dir: string) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
 }
 
 /**
@@ -270,11 +201,106 @@ async function generateStandardFilename(
 }
 
 /**
- * Ensure directory exists, create if it doesn't
+ * Check if an object exists in R2
  */
-function ensureDir(dir: string) {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+async function checkObjectExists(key: string): Promise<boolean> {
+  try {
+    const command = new HeadObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key
+    });
+    await s3Client.send(command);
+    return true;
+  } catch (error) {
+    if ((error as any).name === 'NotFound') {
+      return false;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Find existing metadata entry by content hash
+ */
+function findExistingByHash(
+  hash: string,
+  metadata: { sections: { [key: string]: SectionMetadata } }
+): { section: string; filename: string; metadata: MediaMetadata } | undefined {
+  for (const [section, sectionData] of Object.entries(metadata.sections)) {
+    for (const [filename, itemData] of Object.entries(sectionData.images)) {
+      if (itemData.contentHash === hash) {
+        return { section, filename, metadata: itemData };
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Get date-based path components
+ */
+function getDateBasedPath(dateStr: string): { year: string; month: string } {
+  const date = new Date(dateStr);
+  return {
+    year: date.getFullYear().toString(),
+    month: (date.getMonth() + 1).toString().padStart(2, '0')
+  };
+}
+
+/**
+ * Upload a file to R2 if it doesn't already exist
+ */
+async function uploadToR2(filePath: string, contentHash: string, dateStr?: string): Promise<BlobUploadResult> {
+  try {
+    const fileContent = fs.readFileSync(filePath);
+    const ext = path.extname(filePath);
+    const isThumb = filePath.includes('-thumb');
+    const isPreview = filePath.includes('-preview');
+    
+    // Determine the appropriate directory
+    let directory = 'originals';
+    if (isThumb) {
+      directory = 'thumbs';
+    } else if (isPreview) {
+      directory = 'previews';
+    }
+
+    // Get date-based path if available
+    let datePath = '';
+    if (dateStr) {
+      const { year, month } = getDateBasedPath(dateStr);
+      datePath = `${year}/${month}/`;
+    }
+
+    // Construct the object key
+    const key = `${directory}/${datePath}${contentHash}${ext}`;
+    const publicUrl = `${process.env.S3_ENDPOINT}/${BUCKET_NAME}/${key}`;
+
+    // Check if object already exists
+    if (await checkObjectExists(key)) {
+      process.stdout.write('s'); // 's' for skipped
+      return { success: true, url: publicUrl };
+    }
+
+    // Upload if doesn't exist
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+      Body: fileContent,
+      ContentType: ext === '.jpg' ? 'image/jpeg' : 
+                  ext === '.mp4' ? 'video/mp4' : 
+                  ext === '.mov' ? 'video/quicktime' : 
+                  'application/octet-stream'
+    });
+
+    await s3Client.send(command);
+    process.stdout.write('+'); // '+' for uploaded
+    return { success: true, url: publicUrl };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error during R2 upload'
+    };
   }
 }
 
@@ -333,8 +359,8 @@ async function processImage(sourcePath: string, destDir: string, newFilename: st
     const dateMatch = newFilename.match(/^(\d{4}-\d{2}-\d{2})/);
     const dateStr = dateMatch ? dateMatch[1] : undefined;
 
-    // Upload original to blob storage
-    const originalUpload = await uploadToBlob(tmpOriginalPath, originalHash, dateStr);
+    // Upload original to R2
+    const originalUpload = await uploadToR2(tmpOriginalPath, originalHash, dateStr);
     if (!originalUpload.success || !originalUpload.url) {
       throw new Error(`Failed to upload original: ${originalUpload.error}`);
     }
@@ -366,7 +392,7 @@ async function processImage(sourcePath: string, destDir: string, newFilename: st
       await pipeline.toFile(tmpThumbPath);
       
       // Upload thumbnail
-      const thumbUpload = await uploadToBlob(tmpThumbPath, `${originalHash}-thumb`, dateStr); // Use same dateStr for thumbnail
+      const thumbUpload = await uploadToR2(tmpThumbPath, `${originalHash}-thumb`, dateStr);
       if (!thumbUpload.success || !thumbUpload.url) {
         throw new Error(`Failed to upload thumbnail: ${thumbUpload.error}`);
       }
@@ -433,99 +459,99 @@ async function processVideo(sourcePath: string, destDir: string): Promise<Proces
 
         // Generate standardized filename
         const newFilename = await generateStandardFilename(sourcePath, destDir, ext);
-          const newBasename = path.basename(newFilename, ext);
-          const thumbPath = path.join(destDir, `${newBasename}-thumb.jpg`);
-          const previewPath = path.join(destDir, `${newBasename}-preview.mp4`);
+        const newBasename = path.basename(newFilename, ext);
+        const thumbPath = path.join(destDir, `${newBasename}-thumb.jpg`);
+        const previewPath = path.join(destDir, `${newBasename}-preview.mp4`);
 
-          // Calculate content hashes
-          const originalHash = await calculateFileHash(sourcePath);
-          
-          // Create temporary paths for processing
-          const tmpOriginalPath = path.join(TMP_DIR, `${originalHash}${ext}`);
-          const tmpThumbPath = path.join(TMP_DIR, `${originalHash}-thumb.jpg`);
-          const tmpPreviewPath = path.join(TMP_DIR, `${originalHash}-preview.mp4`);
-          
-          // Ensure tmp directory exists
-          ensureDir(TMP_DIR);
-          
-          // Copy original to tmp
-          fs.copyFileSync(sourcePath, tmpOriginalPath);
+        // Calculate content hashes
+        const originalHash = await calculateFileHash(sourcePath);
+        
+        // Create temporary paths for processing
+        const tmpOriginalPath = path.join(TMP_DIR, `${originalHash}${ext}`);
+        const tmpThumbPath = path.join(TMP_DIR, `${originalHash}-thumb.jpg`);
+        const tmpPreviewPath = path.join(TMP_DIR, `${originalHash}-preview.mp4`);
+        
+        // Ensure tmp directory exists
+        ensureDir(TMP_DIR);
+        
+        // Copy original to tmp
+        fs.copyFileSync(sourcePath, tmpOriginalPath);
 
-          // Extract date from the standardized filename
-          const dateMatch = newFilename.match(/^(\d{4}-\d{2}-\d{2})/);
-          const dateStr = dateMatch ? dateMatch[1] : undefined;
+        // Extract date from the standardized filename
+        const dateMatch = newFilename.match(/^(\d{4}-\d{2}-\d{2})/);
+        const dateStr = dateMatch ? dateMatch[1] : undefined;
 
-          // Upload original to blob storage
-          const originalUpload = await uploadToBlob(tmpOriginalPath, originalHash, dateStr);
-          if (!originalUpload.success || !originalUpload.url) {
-            throw new Error(`Failed to upload original: ${originalUpload.error}`);
+        // Upload original to R2
+        const originalUpload = await uploadToR2(tmpOriginalPath, originalHash, dateStr);
+        if (!originalUpload.success || !originalUpload.url) {
+          throw new Error(`Failed to upload original: ${originalUpload.error}`);
+        }
+
+        const dimensions: MediaMetadata = {
+          width,
+          height,
+          aspectRatio: width / height,
+          originalFilename: path.basename(sourcePath),
+          type: 'video',
+          contentHash: originalHash,
+          urls: {
+            original: originalUpload.url,
+            thumb: '', // Will be set after thumbnail upload
+            preview: '', // Will be set after preview upload
           }
+        };
 
-          const dimensions: MediaMetadata = {
-            width,
-            height,
-            aspectRatio: width / height,
-            originalFilename: path.basename(sourcePath),
-            type: 'video',
-            contentHash: originalHash,
-            urls: {
-              original: originalUpload.url,
-              thumb: '', // Will be set after thumbnail upload
-              preview: '', // Will be set after preview upload
-            }
-          };
+        // Create thumbnail and preview
+        try {
+          // Create thumbnail
+          await new Promise<void>((thumbResolve, thumbReject) => {
+            ffmpeg(sourcePath)
+              .screenshots({
+                timestamps: ['1'],
+                filename: `${originalHash}-thumb.jpg`,
+                folder: TMP_DIR,
+                size: '800x?'
+              })
+              .on('end', () => thumbResolve())
+              .on('error', (err) => thumbReject(err));
+          });
 
-          // Create thumbnail and preview
-          try {
-            // Create thumbnail
-            await new Promise<void>((thumbResolve, thumbReject) => {
-              ffmpeg(sourcePath)
-                .screenshots({
-                  timestamps: ['1'],
-                  filename: `${originalHash}-thumb.jpg`,
-                  folder: TMP_DIR,
-                  size: '800x?'
-                })
-                .on('end', () => thumbResolve())
-                .on('error', (err) => thumbReject(err));
-            });
-
-            // Upload thumbnail
-            const thumbUpload = await uploadToBlob(tmpThumbPath, `${originalHash}-thumb`, dateStr);
-            if (!thumbUpload.success || !thumbUpload.url) {
-              throw new Error(`Failed to upload thumbnail: ${thumbUpload.error}`);
-            }
-            dimensions.urls.thumb = thumbUpload.url;
-
-            // Create preview
-            await new Promise<void>((previewResolve, previewReject) => {
-              ffmpeg(sourcePath)
-                .duration(VIDEO_PREVIEW_DURATION)
-                .size(VIDEO_PREVIEW_SIZE)
-                .output(tmpPreviewPath)
-                .on('end', () => previewResolve())
-                .on('error', (err) => previewReject(err))
-                .run();
-            });
-
-            // Upload preview
-            const previewUpload = await uploadToBlob(tmpPreviewPath, `${originalHash}-preview`, dateStr);
-            if (!previewUpload.success || !previewUpload.url) {
-              throw new Error(`Failed to upload preview: ${previewUpload.error}`);
-            }
-            dimensions.urls.preview = previewUpload.url;
-
-            resolve({ 
-              success: true,
-              newFilename,
-              dimensions
-            });
-          } catch (error) {
-            resolve({
-              success: false,
-              error: error instanceof Error ? error.message : 'Unknown error processing video assets'
-            });
+          // Upload thumbnail
+          const thumbUpload = await uploadToR2(tmpThumbPath, `${originalHash}-thumb`, dateStr);
+          if (!thumbUpload.success || !thumbUpload.url) {
+            throw new Error(`Failed to upload thumbnail: ${thumbUpload.error}`);
           }
+          dimensions.urls.thumb = thumbUpload.url;
+
+          // Create preview
+          await new Promise<void>((previewResolve, previewReject) => {
+            ffmpeg(sourcePath)
+              .duration(VIDEO_PREVIEW_DURATION)
+              .size(VIDEO_PREVIEW_SIZE)
+              .output(tmpPreviewPath)
+              .on('end', () => previewResolve())
+              .on('error', (err) => previewReject(err))
+              .run();
+          });
+
+          // Upload preview
+          const previewUpload = await uploadToR2(tmpPreviewPath, `${originalHash}-preview`, dateStr);
+          if (!previewUpload.success || !previewUpload.url) {
+            throw new Error(`Failed to upload preview: ${previewUpload.error}`);
+          }
+          dimensions.urls.preview = previewUpload.url;
+
+          resolve({ 
+            success: true,
+            newFilename,
+            dimensions
+          });
+        } catch (error) {
+          resolve({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error processing video assets'
+          });
+        }
       }).catch(error => {
         resolve({
           success: false,
@@ -615,29 +641,29 @@ async function processDirectory(sourceDir: string, section: string = '') {
     }
       
     if (SUPPORTED_IMAGE_TYPES.includes(ext)) {
-        // Generate standardized filename
-        const newFilename = await generateStandardFilename(sourcePath, TMP_DIR, ext);
-        const result = await processImage(sourcePath, TMP_DIR, newFilename);
-        if (!result.success) {
-          process.stdout.write('x'); // 'x' for error
-          console.error(`\nError processing image ${item}: ${result.error}`);
-        } else if (result.dimensions) {
-          await updateMetadata(section, newFilename, result.dimensions);
-        }
-      } else if (SUPPORTED_VIDEO_TYPES.includes(ext)) {
-        const result = await processVideo(sourcePath, TMP_DIR);
-        if (!result.success) {
-          process.stdout.write('x'); // 'x' for error
-          console.error(`\nError processing video ${item}: ${result.error}`);
-        } else if (result.dimensions && result.newFilename) {
-          await updateMetadata(section, result.newFilename, result.dimensions);
-        }
+      // Generate standardized filename
+      const newFilename = await generateStandardFilename(sourcePath, TMP_DIR, ext);
+      const result = await processImage(sourcePath, TMP_DIR, newFilename);
+      if (!result.success) {
+        process.stdout.write('x'); // 'x' for error
+        console.error(`\nError processing image ${item}: ${result.error}`);
+      } else if (result.dimensions) {
+        await updateMetadata(section, newFilename, result.dimensions);
+      }
+    } else if (SUPPORTED_VIDEO_TYPES.includes(ext)) {
+      const result = await processVideo(sourcePath, TMP_DIR);
+      if (!result.success) {
+        process.stdout.write('x'); // 'x' for error
+        console.error(`\nError processing video ${item}: ${result.error}`);
+      } else if (result.dimensions && result.newFilename) {
+        await updateMetadata(section, result.newFilename, result.dimensions);
       }
     }
+  }
 }
 
 /**
- * Upload metadata to blob storage
+ * Upload metadata to R2
  */
 async function uploadMetadata(): Promise<string> {
   process.stdout.write('\nUploading metadata... ');
@@ -649,28 +675,28 @@ async function uploadMetadata(): Promise<string> {
     // Generate timestamp for versioning
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     
-    // Upload to blob storage
-    const { url } = await put(
-      `photos/metadata/metadata-${timestamp}.json`,
-      JSON.stringify(metadata, null, 2),
-      {
-        access: 'public',
-        addRandomSuffix: false
-      }
-    );
+    // Upload versioned metadata
+    const versionedKey = `metadata/metadata-${timestamp}.json`;
+    const versionedCommand = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: versionedKey,
+      Body: JSON.stringify(metadata, null, 2),
+      ContentType: 'application/json'
+    });
+    await s3Client.send(versionedCommand);
 
-    // Also upload as latest.json for easy access
-    await put(
-      'photos/metadata/latest.json',
-      JSON.stringify(metadata, null, 2),
-      {
-        access: 'public',
-        addRandomSuffix: false
-      }
-    );
+    // Upload latest metadata
+    const latestKey = 'metadata/latest.json';
+    const latestCommand = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: latestKey,
+      Body: JSON.stringify(metadata, null, 2),
+      ContentType: 'application/json'
+    });
+    await s3Client.send(latestCommand);
 
     process.stdout.write('done\n');
-    return url;
+    return `${process.env.S3_ENDPOINT}/${BUCKET_NAME}/${versionedKey}`;
   } catch (error) {
     console.error('Error uploading metadata:', error);
     throw error;
@@ -708,7 +734,7 @@ async function main() {
     // Clean up temporary files
     await cleanupTmp();
     
-    // Upload metadata to blob storage
+    // Upload metadata to R2
     const metadataUrl = await uploadMetadata();
     console.log('Media processing completed successfully');
   } catch (error) {
