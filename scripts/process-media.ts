@@ -136,7 +136,6 @@ function getDateBasedPath(dateStr: string): { year: string; month: string } {
  */
 async function uploadToBlob(filePath: string, contentHash: string, dateStr?: string): Promise<BlobUploadResult> {
   try {
-    console.log(`Uploading ${path.basename(filePath)}...`);
     const fileContent = fs.readFileSync(filePath);
     const ext = path.extname(filePath);
     const isThumb = filePath.includes('-thumb');
@@ -163,7 +162,7 @@ async function uploadToBlob(filePath: string, contentHash: string, dateStr?: str
 
     // Check if blob already exists
     if (await checkBlobExists(expectedUrl)) {
-      console.log(`✓ File already exists at ${filename}`);
+      process.stdout.write('s'); // 's' for skipped
       return { success: true, url: expectedUrl };
     }
 
@@ -173,7 +172,7 @@ async function uploadToBlob(filePath: string, contentHash: string, dateStr?: str
       addRandomSuffix: false // Use exact filename based on content hash
     });
 
-    console.log(`✓ Uploaded ${path.basename(filePath)} to ${filename}`);
+    process.stdout.write('+'); // '+' for uploaded
     return { success: true, url };
   } catch (error) {
     return {
@@ -224,7 +223,6 @@ async function generateStandardFilename(
           throw new Error('No capture date found in EXIF');
         }
       } catch (exifError) {
-        console.error('Error parsing EXIF:', exifError);
         // Fallback to file creation time
         const stats = fs.statSync(sourcePath);
         const date = stats.birthtime;
@@ -249,7 +247,6 @@ async function generateStandardFilename(
       .replace('T', '-')
       .replace(/:/g, '')
       .split('.')[0];
-    console.error('Date extraction error:', error);
   }
 
   // Find existing files with the same timestamp to determine serial number
@@ -286,7 +283,6 @@ function ensureDir(dir: string) {
  */
 async function processImage(sourcePath: string, destDir: string, newFilename: string): Promise<ProcessingResult> {
   try {
-    console.log(`\nProcessing image: ${path.basename(sourcePath)}`);
     const ext = path.extname(sourcePath);
     const originalBasename = path.basename(sourcePath, ext);
     
@@ -358,7 +354,6 @@ async function processImage(sourcePath: string, destDir: string, newFilename: st
 
     // Create and upload thumbnail
     try {
-      console.log('Creating thumbnail...');
       // Create thumbnail pipeline
       const pipeline = sharp(sourcePath)
         .resize(THUMBNAIL_WIDTH, null, {
@@ -396,7 +391,6 @@ async function processImage(sourcePath: string, destDir: string, newFilename: st
 async function processVideo(sourcePath: string, destDir: string): Promise<ProcessingResult> {
   return new Promise(async (resolve) => {
     try {
-      console.log(`\nProcessing video: ${path.basename(sourcePath)}`);
       const ext = path.extname(sourcePath);
       const originalBasename = path.basename(sourcePath, ext);
       
@@ -483,7 +477,6 @@ async function processVideo(sourcePath: string, destDir: string): Promise<Proces
 
           // Create thumbnail and preview
           try {
-            console.log('Creating thumbnail...');
             // Create thumbnail
             await new Promise<void>((thumbResolve, thumbReject) => {
               ffmpeg(sourcePath)
@@ -504,7 +497,6 @@ async function processVideo(sourcePath: string, destDir: string): Promise<Proces
             }
             dimensions.urls.thumb = thumbUpload.url;
 
-            console.log('Creating preview...');
             // Create preview
             await new Promise<void>((previewResolve, previewReject) => {
               ffmpeg(sourcePath)
@@ -585,7 +577,7 @@ async function processDirectory(sourceDir: string, section: string = '') {
   });
 
   if (mediaFiles.length > 0) {
-    console.log(`\nProcessing ${mediaFiles.length} files in ${section || 'root'}`);
+    process.stdout.write(`\nProcessing ${mediaFiles.length} files in ${section || 'root'}: `);
   }
 
   // Reset processing state for this run
@@ -613,7 +605,7 @@ async function processDirectory(sourceDir: string, section: string = '') {
     // Check if this content hash exists anywhere in the metadata
     const existing = findExistingByHash(contentHash, processingState);
     if (existing) {
-      console.log(`Skipping ${item} - content already exists as ${existing.section}/${existing.filename}`);
+      process.stdout.write('s'); // 's' for skipped
       
       // If it's in a different section, add a reference to it
       if (existing.section !== section) {
@@ -630,26 +622,28 @@ async function processDirectory(sourceDir: string, section: string = '') {
         const newFilename = await generateStandardFilename(sourcePath, TMP_DIR, ext);
         const result = await processImage(sourcePath, TMP_DIR, newFilename);
         if (!result.success) {
-          console.error(`Error processing image ${item}: ${result.error}`);
+          process.stdout.write('x'); // 'x' for error
+          console.error(`\nError processing image ${item}: ${result.error}`);
         } else if (result.dimensions) {
           await updateMetadata(section, newFilename, result.dimensions);
         }
       } else if (SUPPORTED_VIDEO_TYPES.includes(ext)) {
         const result = await processVideo(sourcePath, TMP_DIR);
         if (!result.success) {
-          console.error(`Error processing video ${item}: ${result.error}`);
+          process.stdout.write('x'); // 'x' for error
+          console.error(`\nError processing video ${item}: ${result.error}`);
         } else if (result.dimensions && result.newFilename) {
           await updateMetadata(section, result.newFilename, result.dimensions);
         }
       }
     }
-  }
+}
 
 /**
  * Upload metadata to blob storage
  */
 async function uploadMetadata(): Promise<string> {
-  console.log('\nUploading metadata to blob storage...');
+  process.stdout.write('\nUploading metadata... ');
   
   try {
     // Use in-memory state
@@ -678,7 +672,7 @@ async function uploadMetadata(): Promise<string> {
       }
     );
 
-    console.log('✓ Metadata uploaded successfully');
+    process.stdout.write('done\n');
     return url;
   } catch (error) {
     console.error('Error uploading metadata:', error);
@@ -692,7 +686,6 @@ async function uploadMetadata(): Promise<string> {
 async function cleanupTmp() {
   if (fs.existsSync(TMP_DIR)) {
     try {
-      console.log('\nCleaning up temporary files...');
       fs.rmSync(TMP_DIR, { recursive: true, force: true });
     } catch (error) {
       console.error('Error cleaning up temporary directory:', error);
@@ -717,8 +710,7 @@ async function main() {
     
     // Upload metadata to blob storage
     const metadataUrl = await uploadMetadata();
-    console.log(`\nMedia processing completed successfully`);
-    console.log(`Metadata URL: ${metadataUrl}`);
+    console.log('Media processing completed successfully');
   } catch (error) {
     console.error('Error processing media:', error);
     process.exit(1);
