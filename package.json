@@ -18,6 +18,7 @@
     "@types/dotenv": "^6.1.1",
     "@types/lodash": "^4.17.15",
     "@vercel/blob": "^0.27.1",
+    "@vercel/speed-insights": "^1.2.0",
     "dotenv": "^16.4.7",
     "exif-reader": "^2.0.2",
     "fluent-ffmpeg": "^2.1.3",
