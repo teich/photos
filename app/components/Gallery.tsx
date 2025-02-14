@@ -25,12 +25,28 @@ export function Gallery({ items }: GalleryProps) {
   const pathname = usePathname();
   const [getLastViewedImage] = useRouterState<string>('lastViewedImage');
 
+  // Debug: Log initial items
+  console.log('Initial items:', items.map(item => ({
+    id: item.id,
+    aspectRatio: item.dimensions.aspectRatio
+  })));
+
   // Calculate layout using fixed desktop width
+  // Debug: Log layout calculation
   const { rows } = useLayoutEngine(items, DESKTOP_WIDTH, {
     targetRowHeight: GALLERY_CONFIG.targetRowHeight,
     spacing: GALLERY_CONFIG.horizontalSpacing,
     tolerance: 20
   });
+
+  // Debug: Log rows after layout
+  console.log('Rows after layout:', rows.map(row => 
+    row.items.map(item => ({
+      id: item.id,
+      width: item.width,
+      height: row.height
+    }))
+  ));
 
   // Get image ID from either pathname or last viewed state
   const currentImageId = pathname.split('/').slice(1).join('/') || getLastViewedImage();

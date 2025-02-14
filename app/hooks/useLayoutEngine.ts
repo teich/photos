@@ -25,20 +25,28 @@ function layoutRow(
   items: MediaItem[],
   options: LayoutOptions
 ): LayoutRow {
-  const { containerWidth, spacing } = options;
+  const { containerWidth, spacing, targetRowHeight } = options;
   
   // Calculate total aspect ratio for the row, using a default of 1 for items without dimensions
   const totalAspectRatio = items.reduce((sum, item) => {
     // If no dimensions, assume a square aspect ratio
     const aspectRatio = item.dimensions?.aspectRatio ?? 1;
-    return sum + aspectRatio;
+    // Give more weight to portrait images
+    const weight = aspectRatio < 1 ? 1.5 : 1;
+    return sum + (aspectRatio * weight);
   }, 0);
 
   // Calculate row height and base widths
   const availableWidth = spacing > 0 
     ? containerWidth - ((items.length - 1) * spacing)
     : containerWidth;
-  const rowHeight = availableWidth / totalAspectRatio;
+  let rowHeight = availableWidth / totalAspectRatio;
+
+  // Ensure row height doesn't exceed target for portrait images
+  const hasPortrait = items.some(item => (item.dimensions?.aspectRatio || 1) < 1);
+  if (hasPortrait) {
+    rowHeight = Math.min(rowHeight, targetRowHeight * 1.5);
+  }
 
   // Calculate base item dimensions
   const layoutItems: LayoutItem[] = items.map(item => {
@@ -57,6 +65,17 @@ function layoutRow(
   
   layoutItems.forEach(item => {
     item.width *= scaleFactor;
+  });
+
+  console.log('Row layout:', {
+    items: layoutItems.map(item => ({
+      id: item.id,
+      aspectRatio: item.dimensions?.aspectRatio,
+      width: item.width,
+      height: rowHeight
+    })),
+    rowHeight,
+    scaleFactor
   });
 
   return {
@@ -85,6 +104,12 @@ function calculateLayout(
   const bestLayout: LayoutRow[] = [];
   let previousRow: MediaItem[] | null = null;
   
+  // Debug: Log initial items for layout
+  console.log('Layout engine input:', items.map(item => ({
+    id: item.id,
+    aspectRatio: item.dimensions?.aspectRatio
+  })));
+  
   // Create a copy of items to prevent modifying original
   const workingItems = [...items];
   const usedItems = new Set<string>();
@@ -107,54 +132,48 @@ function calculateLayout(
       }
       currentWidth += itemWidth;
       
-      // Check if row is full
-      if (currentWidth > containerWidth + tolerance) {
+      // Check if row is full, but be more lenient with portrait images
+      const isPortrait = aspectRatio < 1;
+      const adjustedTolerance = isPortrait ? tolerance * 2 : tolerance;
+      if (currentWidth > containerWidth + adjustedTolerance) {
+        console.log('Row is full:', {
+          currentWidth,
+          containerWidth,
+          adjustedTolerance,
+          isPortrait
+        });
         break;
       }
       
       // Skip if this item has already been used
       if (usedItems.has(item.id)) {
+        console.log('Skipping used item:', item.id);
         continue;
       }
 
-      // Before adding to row, check if this would create a vertical seam
-      if (previousRow && currentRow.length < previousRow.length) {
-        const prevIndex = currentRow.length;
-        if (hasSimilarAspectRatio(item, previousRow[prevIndex])) {
-          // Look ahead for a better candidate to swap with
-          let foundSwap = false;
-          for (let j = i + 1; j < Math.min(workingItems.length, i + 3); j++) {
-            const nextItem = workingItems[j];
-            if (!usedItems.has(nextItem.id) && !hasSimilarAspectRatio(nextItem, previousRow[prevIndex])) {
-              // Swap items to avoid the seam
-              [workingItems[i], workingItems[j]] = [workingItems[j], workingItems[i]];
-              foundSwap = true;
-              break;
-            }
-          }
-          // If no swap was found, just use the current item
-          if (!foundSwap) {
-            currentRow.push(item);
-            usedItems.add(item.id);
-          }
-        } else {
-          currentRow.push(item);
-          usedItems.add(item.id);
-        }
-      } else {
-        currentRow.push(item);
-        usedItems.add(item.id);
-      }
+      // Always add the item to the row - we'll handle seams visually with CSS
+      currentRow.push(item);
+      usedItems.add(item.id);
+      console.log('Added item to row:', {
+        id: item.id,
+        aspectRatio: item.dimensions?.aspectRatio,
+        rowSize: currentRow.length
+      });
     }
 
     // Layout the row
     if (currentRow.length > 0) {
+      console.log('Creating row with items:', currentRow.map(item => ({
+        id: item.id,
+        aspectRatio: item.dimensions?.aspectRatio
+      })));
       const row = layoutRow(currentRow, options);
       bestLayout.push(row);
       previousRow = currentRow;
       startIndex += currentRow.length;
     } else {
       // Prevent infinite loop if we can't fit any items
+      console.log('Could not fit any items in row, incrementing startIndex');
       startIndex++;
     }
   }
