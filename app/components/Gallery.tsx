@@ -85,10 +85,6 @@ export function Gallery({ items }: GalleryProps) {
   }, []);
 
   const styles = useMemo(() => {
-    // Calculate the scaled width to adjust wrapper padding
-    const scaledWidth = DESKTOP_WIDTH * scale;
-    const horizontalPadding = windowWidth ? Math.max(0, (windowWidth - scaledWidth) / 2) : 20;
-    
     return {
       wrapper: {
         width: '100%',
