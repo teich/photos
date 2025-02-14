@@ -2,159 +2,187 @@
 
 ## Current Focus
 
-### Project Phase: Media Storage Optimization
-We are optimizing the media storage and processing pipeline. Recent changes and plans include:
+### Project Phase: Blob Storage Migration
+We are migrating all media to Vercel Blob storage for improved scalability and maintainability. The plan includes:
 
 1. **Media Storage Strategy**
-   - Maintain current section-based organization
-   - Use Next/Image for image optimization on Vercel
-   - Leverage Vercel Blob for video storage
-   - Keep thumbnails and previews in git
+   - Move all media (images and videos) to Vercel Blob
+   - Remove media files from git completely
+   - Use content-based hashing for idempotent uploads
+   - Single root-level metadata.json
 
 2. **Processing Pipeline**
-   - Keep existing thumbnail generation
-   - Maintain video preview creation
-   - Add Blob upload during deployment
-   - Preserve metadata structure
+   ```typescript
+   photos/[section]/           → process-media → /tmp/processed/[section]/ → upload to blob → cleanup /tmp
+   original.{jpg,mp4}         →  ┌─ original.{jpg,mp4} → blob://[hash]
+                                └─ thumb.{jpg} → blob://[hash]
+                                └─ preview.mp4 (for videos) → blob://[hash]
+   ```
 
 3. **Development Workflow**
-   - Simple file dropping in sections
-   - Local processing with npm scripts
-   - Automated Vercel deployment
-   - Transparent video handling
+   - Process media with npm run process-media
+   - Use /tmp for intermediate processing
+   - Upload to blob with content hashing
+   - Clean build process (npm run build)
 
 ## Recent Decisions
 
 ### Architecture Decisions
-1. **Routing Structure**
-   - Simple /[id] route for images
-   - Removed parallel routes
-   - Standard page transitions
-   - Browser history integration
+1. **Storage Structure**
+   - Remove /public/photos completely
+   - Use /tmp for intermediate processing
+   - Store all media in Vercel Blob
+   - Single metadata.json at root
 
 2. **Data Management**
-   - Server actions for file access
-   - Runtime metadata loading
-   - No client-side caching
-   - Built-in Next.js caching
+   ```typescript
+   {
+     sections: {
+       [sectionName: string]: {
+         items: {
+           id: string,
+           originalUrl: string,  // blob URL
+           thumbUrl: string,     // blob URL
+           previewUrl?: string,  // blob URL for videos
+           dimensions: {
+             width: number,
+             height: number,
+             aspectRatio: number
+           },
+           type: 'image' | 'video'
+         }[]
+       }
+     }
+   }
+   ```
 
-3. **Component Organization**
-   - Simplified component hierarchy
-   - Clear client/server boundaries
-   - Reduced prop drilling
-   - Minimal state management
-
+3. **Build Process**
+   ```mermaid
+   graph TD
+       A[Add media to /photos] --> B[npm run process-media]
+       B --> C[Process to /tmp]
+       C --> D[Upload to blob]
+       D --> E[Generate metadata.json]
+       E --> F[Cleanup /tmp]
+       F --> G[npm run build]
+       G --> H[Deploy to Vercel]
+   ```
 ## Active Considerations
 
-### User Experience
-1. **Navigation**
-   - ✓ Escape returns to grid
-   - ✓ Left/right arrow navigation
-   - ✓ Click overlay to close
-   - ✓ Hover controls
+### Implementation Strategy
+1. **Media Processing**
+   - Content-based hashing for idempotency
+   - Efficient blob uploads
+   - Progress reporting
+   - Error handling
 
 2. **Performance**
-   - Server component caching
-   - Image optimization
-   - Smooth transitions
-   - Lazy loading
+   - Blob URL caching
+   - Optimized metadata loading
+   - Efficient media delivery
+   - CDN integration
 
 ### Development Flow
 1. **Content Updates**
-   - Server-side processing
-   - Metadata management
-   - Runtime file access
-   - Error handling
+   - Simplified media processing
+   - Automated blob uploads
+   - Clean build process
+   - Error recovery
 
 2. **Build Pipeline**
-   - Media processing
-   - Thumbnail generation
-   - Preview creation
-   - Progress reporting
+   - Separate media processing from build
+   - Efficient temporary storage
+   - Reliable cleanup
+   - Progress monitoring
 
 ## Next Steps
 
 ### Immediate Tasks
-1. **Performance Optimization**
-   - Implement image preloading
-   - Optimize transitions
-   - Add loading states
-   - Cache management
+1. ✓ **Script Updates**
+   - ✓ Modify process-media.ts for blob uploads
+   - ✓ Implement content hashing
+   - ✓ Add progress reporting
+   - ✓ Handle errors gracefully
 
-2. **UI Polish**
-   - Mobile responsiveness
-   - Touch gestures
-   - Loading indicators
-   - Error states
+2. **Testing & Validation**
+   - Test with sample images
+   - Test with sample videos
+   - Verify metadata structure
+   - Check blob URLs
 
-3. **Content Management**
-   - Metadata schema
-   - Section organization
-   - Update workflows
-   - File cleanup
+2. **Code Changes**
+   - Update lib/media.ts for blob URLs
+   - Modify Gallery/Lightbox components
+   - Implement URL caching
+   - Update type definitions
 
-### Upcoming Considerations
-1. **Deployment**
-   - Vercel configuration
-   - CDN setup
-   - Cache strategies
-   - Error monitoring
-
-2. **User Experience**
-   - Touch interactions
-   - Loading states
-   - Error handling
-   - Accessibility
-
-## Current Questions
-
-### Technical
-1. **Server Actions**
-   - Caching strategies?
-   - Error handling patterns?
-   - Performance optimization?
-
-2. **Media Loading**
-   - Preloading strategy?
-   - Cache management?
-   - Loading indicators?
-
-### UX/Design
-1. **Navigation**
-   - ✓ Escape to grid implemented
-   - ✓ Arrow key navigation working
-   - Touch gestures needed?
-   - Loading transitions?
-
-2. **Gallery Layout**
-   - ✓ Justified grid implementation complete
-   - ✓ Configurable spacing system added
-   - ✓ Full-width row justification
-   - Mobile optimization?
-
-### Recent Implementations
-1. **Architecture**
-   - Simplified routing structure
-   - Implemented server actions
-   - Removed client caching
-   - Standard navigation
-
-2. **Navigation**
-   - Consistent "up" navigation
-   - Arrow key navigation
-   - Click to close
-   - URL-based routing
+3. **Infrastructure**
+   - Configure Vercel Blob storage
+   - Set up temporary storage
+   - Update build process
+   - Test deployment flow
 
 ## Implementation Notes
 
 ### Current Priorities
-1. ✓ Simplify architecture
-2. ✓ Implement server actions
-3. ✓ Fix navigation patterns
-4. Optimize performance
+1. Implement blob storage migration
+2. Update media processing
+3. Modify component code
+4. Test and validate changes
 
 ### Known Constraints
-1. Runtime file system access
-2. Server component limitations
-3. Client/server boundaries
-4. Mobile performance
+1. Build process separation
+2. ✓ Temporary storage management (using /tmp)
+3. ✓ Idempotent processing (using content hashing)
+4. ✓ Error handling requirements
+
+### Implementation Progress
+1. **Completed**
+   - Blob storage configuration
+   - Content-based hashing
+   - Temporary directory management
+   - Progress reporting
+   - Error handling
+   - Metadata structure
+   - Media processing script
+   - Media library updates
+
+2. **Testing Setup**
+   - test-media.ts script for validating:
+     - Section loading
+     - Media item retrieval
+     - Metadata structure
+     - Blob URL access
+     - Content hashing
+   - Progress reporting in process-media.ts
+   - Temporary file cleanup
+   - Error handling validation
+
+3. **In Progress**
+   - Testing and validation
+   - Component updates
+   - URL caching strategy
+
+4. **Next Up**
+   - Run test suite with sample media
+   - Modify Gallery/Lightbox components
+   - Implement URL caching
+   - Test deployment flow
+
+### Testing Strategy
+1. **Media Processing**
+   ```bash
+   # Process media files
+   npm run process-media
+
+   # Validate results
+   npm run test-media
+   ```
+
+2. **Validation Points**
+   - Metadata structure
+   - Blob URL accessibility
+   - Content hash verification
+   - Section organization
+   - Thumbnail generation
+   - Video preview creation

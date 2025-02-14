@@ -80,12 +80,18 @@ None currently
 - [x] Media viewing working
 - [x] Server actions implemented
 
-### Milestone 4: Media Storage & Processing
-- [ ] Vercel Blob integration for videos
-- [ ] Automated video upload during deployment
-- [ ] Next/Image optimization for images
-- [ ] Preserve current media organization
-- [ ] Update media.ts for Blob URLs
+### Milestone 4: Blob Storage Migration
+- [ ] Remove media from git (/public/photos)
+- [x] Implement Vercel Blob storage for all media
+- [x] Update process-media.ts for blob workflow
+- [x] Create content-based hashing system
+- [x] Implement /tmp processing pipeline
+- [x] Generate unified metadata.json
+- [x] Update media.ts for blob URLs
+- [x] Test with real media
+- [x] Verify blob URLs and metadata
+- [ ] Modify components for new URL structure
+- [ ] Implement URL caching
 
 ### Milestone 4: Polish
 - [ ] Performance optimization

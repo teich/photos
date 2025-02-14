@@ -1,7 +1,30 @@
 'use server'
 
-import { readFileSync, readdirSync, statSync } from 'fs';
-import { join, extname } from 'path';
+import { join } from 'path';
+import { cache } from 'react';
+
+const METADATA_URL = process.env.NEXT_PUBLIC_METADATA_URL;
+if (!METADATA_URL) {
+  throw new Error('NEXT_PUBLIC_METADATA_URL environment variable is required');
+}
+
+// Cache the metadata fetch to avoid repeated requests
+const getMetadataFromBlob = cache(async () => {
+  try {
+    const response = await fetch(METADATA_URL, {
+      next: { revalidate: 60 } // Revalidate every minute
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch metadata: ${response.statusText}`);
+    }
+    
+    return response.json() as Promise<RootMetadata>;
+  } catch (error) {
+    console.error('Error fetching metadata:', error);
+    return { sections: {} };
+  }
+});
 
 // Media dimension information
 export interface MediaDimensions {
@@ -10,57 +33,77 @@ export interface MediaDimensions {
   aspectRatio: number;
 }
 
-// Metadata stored in section folders
+// Metadata for each media item
+export interface MediaMetadata {
+  width: number;
+  height: number;
+  aspectRatio: number;
+  originalFilename: string;
+  type: 'image' | 'video';
+  contentHash: string;
+  urls: {
+    original: string;
+    thumb: string;
+    preview?: string;  // For videos only
+  };
+}
+
+// Section metadata structure
 export interface SectionMetadata {
   images: {
-    [filename: string]: MediaDimensions;
+    [filename: string]: MediaMetadata;
+  };
+}
+
+// Root metadata structure
+interface RootMetadata {
+  sections: {
+    [sectionName: string]: SectionMetadata;
   };
 }
 
 // Types for our media items
 export interface MediaItem {
-  id: string;           // Unique identifier
+  id: string;           // Unique identifier (standardized filename)
   type: 'image' | 'video';
-  section: string;      // Folder name (e.g., "2024-baja")
-  filename: string;     // Original filename
-  path: string;         // Path relative to public/photos
-  url: string;         // URL path for the media
-  thumbnailUrl: string; // URL path for the thumbnail
-  previewUrl?: string;  // URL path for video preview (videos only)
-  dimensions?: MediaDimensions; // Image dimensions and aspect ratio
+  section: string;      // Section name (e.g., "2024-baja")
+  filename: string;     // Standardized filename
+  originalFilename: string; // Original filename
+  url: string;          // Blob URL for original
+  thumbnailUrl: string; // Blob URL for thumbnail
+  previewUrl?: string;  // Blob URL for video preview
+  dimensions: MediaDimensions; // Image dimensions and aspect ratio
+  contentHash: string;  // Content-based hash
 }
 
 export interface Section {
-  name: string;        // Folder name
+  name: string;        // Section name
   title: string;       // Display title
-  items: MediaItem[];
+  items: MediaItem[];  // Media items in this section
 }
 
-const PHOTOS_DIR = join(process.cwd(), 'public/photos');
-const SUPPORTED_IMAGE_TYPES = ['.jpg', '.jpeg', '.png', '.webp'];
-const SUPPORTED_VIDEO_TYPES = ['.mp4', '.mov'];
+/**
+ * Get metadata from blob storage
+ */
+async function getRootMetadata(): Promise<RootMetadata> {
+  return getMetadataFromBlob();
+}
 
 /**
- * Get all media sections (folders) and their contents
+ * Get all media sections and their contents
  */
 export async function getMediaSections(): Promise<Section[]> {
+  const metadata = await getRootMetadata();
   const sections: Section[] = [];
-  
-  // Read the photos directory
-  const sectionDirs = readdirSync(PHOTOS_DIR)
-    .filter(item => {
-      const fullPath = join(PHOTOS_DIR, item);
-      return statSync(fullPath).isDirectory();
-    });
 
   // Process each section
-  for (const sectionDir of sectionDirs) {
-    const items = await getMediaItemsInSection(sectionDir);
+  for (const [sectionName, sectionData] of Object.entries(metadata.sections)) {
+    const items = getMediaItemsInSection(sectionName, sectionData);
     if (items.length > 0) {
       sections.push({
-        name: sectionDir,
-        // Convert folder name to display title (e.g., "2024-baja" -> "2024 Baja")
-        title: sectionDir.replace(/-/g, ' ').replace(/(\d{4})/, '$1 '),
+        name: sectionName,
+        // Convert section name to display title (e.g., "2024-baja" -> "2024 Baja")
+        title: sectionName.replace(/-/g, ' ').replace(/(\d{4})/, '$1 '),
         items
       });
     }
@@ -73,66 +116,26 @@ export async function getMediaSections(): Promise<Section[]> {
 /**
  * Get all media items in a specific section
  */
-async function getMediaItemsInSection(sectionDir: string): Promise<MediaItem[]> {
-  const sectionPath = join(PHOTOS_DIR, sectionDir);
+function getMediaItemsInSection(sectionName: string, metadata: SectionMetadata): MediaItem[] {
   const items: MediaItem[] = [];
 
-  // Try to read metadata file
-  let metadata: SectionMetadata | undefined;
-  const metadataPath = join(sectionPath, 'metadata.json');
-  try {
-    const metadataContent = readFileSync(metadataPath, 'utf8');
-    metadata = JSON.parse(metadataContent);
-  } catch (error) {
-    // Type guard to check if error is a NodeJS.ErrnoException
-    if (error instanceof Error && 'code' in error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        console.error(`Error reading metadata for section ${sectionDir}:`, error);
-      }
-    }
-  }
-
-  // Read all files in the section directory
-  const files = readdirSync(sectionPath);
-
-  // First pass: collect original files with metadata
-  for (const filename of files) {
-    const ext = extname(filename).toLowerCase();
-    
-    // Skip if not a supported media type
-    if (![...SUPPORTED_IMAGE_TYPES, ...SUPPORTED_VIDEO_TYPES].includes(ext)) {
-      continue;
-    }
-
-    // Skip thumbnail and preview files
-    if (filename.includes('-thumb') || filename.includes('-preview')) {
-      continue;
-    }
-
-    // Skip files without metadata (they might not be processed yet)
-    if (!metadata?.images?.[filename]) {
-      console.warn(`Missing metadata for file: ${filename}`);
-      continue;
-    }
-
-    const type = SUPPORTED_IMAGE_TYPES.includes(ext) ? 'image' : 'video';
-    const relativePath = join(sectionDir, filename).replace(/\\/g, '/');
-
+  // Process each item in the section
+  for (const [filename, itemData] of Object.entries(metadata.images)) {
     const item: MediaItem = {
-      id: join(sectionDir, filename).replace(/\s+/g, '-'),
-      type,
-      section: sectionDir,
+      id: join(sectionName, filename).replace(/\s+/g, '-'),
+      type: itemData.type,
+      section: sectionName,
       filename,
-      path: relativePath,
-      url: `/photos/${relativePath}`,
-      thumbnailUrl: `/photos/${join(
-        sectionDir,
-        `${filename.replace(ext, '')}-thumb${type === 'image' ? ext : '.jpg'}`
-      ).replace(/\\/g, '/')}`,
-      previewUrl: type === 'video'
-        ? `/photos/${join(sectionDir, `${filename.replace(ext, '')}-preview.mp4`).replace(/\\/g, '/')}`
-        : undefined,
-      dimensions: metadata.images[filename]
+      originalFilename: itemData.originalFilename,
+      url: itemData.urls.original,
+      thumbnailUrl: itemData.urls.thumb,
+      previewUrl: itemData.urls.preview,
+      dimensions: {
+        width: itemData.width,
+        height: itemData.height,
+        aspectRatio: itemData.aspectRatio
+      },
+      contentHash: itemData.contentHash
     };
 
     items.push(item);

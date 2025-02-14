@@ -22,6 +22,7 @@ yarn-debug.log*
 yarn-error.log*
 
 # Local env files
+.env
 .env*.local
 
 # Vercel
@@ -31,5 +32,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# Original media files
+# Media files and metadata
 public/photos
+metadata.json
+/tmp

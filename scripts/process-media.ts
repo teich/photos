@@ -5,6 +5,8 @@ import sharp from 'sharp';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import exifReader from 'exif-reader';
+import { put } from '@vercel/blob';
+import crypto from 'crypto';
 
 interface ExifData {
   Photo?: {
@@ -22,7 +24,31 @@ ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 const DEFAULT_PHOTOS_DIR = path.join(os.homedir(), 'Pictures', 'web');
 const inputDir = process.argv[2] || DEFAULT_PHOTOS_DIR;
 const ORIGINALS_DIR = path.resolve(inputDir);  // Source directory for original files
-const PUBLIC_DIR = 'public/photos';  // Destination directory for web assets
+const TMP_DIR = path.join(os.tmpdir(), 'photos-processing');  // Temporary processing directory
+const TMP_METADATA_PATH = path.join(TMP_DIR, 'metadata.json');  // Temporary metadata file
+
+// In-memory metadata state
+let processingState: { sections: { [key: string]: SectionMetadata } } = { sections: {} };
+
+// Ensure BLOB_READ_WRITE_TOKEN is set
+if (!process.env.BLOB_READ_WRITE_TOKEN) {
+  console.error('Error: BLOB_READ_WRITE_TOKEN environment variable is not set');
+  process.exit(1);
+}
+
+/**
+ * Calculate content hash for a file
+ */
+async function calculateFileHash(filePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(filePath);
+    
+    stream.on('error', err => reject(err));
+    stream.on('data', chunk => hash.update(chunk));
+    stream.on('end', () => resolve(hash.digest('hex')));
+  });
+}
 
 // Validate input directory
 if (!fs.existsSync(ORIGINALS_DIR)) {
@@ -44,12 +70,117 @@ interface MediaMetadata {
   height: number;
   aspectRatio: number;
   originalFilename: string;
+  type: 'image' | 'video';
+  contentHash: string;
+  urls: {
+    original: string;
+    thumb: string;
+    preview?: string;  // For videos only
+  };
 }
 
 interface SectionMetadata {
   images: {
     [filename: string]: MediaMetadata;
   };
+}
+
+interface BlobUploadResult {
+  success: boolean;
+  url?: string;
+  error?: string;
+}
+
+/**
+ * Check if a blob exists at the given URL
+ */
+async function checkBlobExists(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(url, { method: 'HEAD' });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Find existing metadata entry by content hash
+ */
+function findExistingByHash(
+  hash: string,
+  metadata: { sections: { [key: string]: SectionMetadata } }
+): { section: string; filename: string; metadata: MediaMetadata } | undefined {
+  for (const [section, sectionData] of Object.entries(metadata.sections)) {
+    for (const [filename, itemData] of Object.entries(sectionData.images)) {
+      if (itemData.contentHash === hash) {
+        return { section, filename, metadata: itemData };
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Get date-based path components
+ */
+function getDateBasedPath(dateStr: string): { year: string; month: string } {
+  const date = new Date(dateStr);
+  return {
+    year: date.getFullYear().toString(),
+    month: (date.getMonth() + 1).toString().padStart(2, '0')
+  };
+}
+
+/**
+ * Upload a file to blob storage if it doesn't already exist
+ */
+async function uploadToBlob(filePath: string, contentHash: string, dateStr?: string): Promise<BlobUploadResult> {
+  try {
+    console.log(`Uploading ${path.basename(filePath)}...`);
+    const fileContent = fs.readFileSync(filePath);
+    const ext = path.extname(filePath);
+    const isThumb = filePath.includes('-thumb');
+    const isPreview = filePath.includes('-preview');
+    
+    // Determine the appropriate directory
+    let directory = 'originals';
+    if (isThumb) {
+      directory = 'thumbs';
+    } else if (isPreview) {
+      directory = 'previews';
+    }
+
+    // Get date-based path if available
+    let datePath = '';
+    if (dateStr) {
+      const { year, month } = getDateBasedPath(dateStr);
+      datePath = `${year}/${month}/`;
+    }
+
+    // Construct the full path and URL
+    const filename = `photos/${directory}/${datePath}${contentHash}${ext}`;
+    const expectedUrl = `https://gaaujfp2apep35qw.public.blob.vercel-storage.com/${filename}`;
+
+    // Check if blob already exists
+    if (await checkBlobExists(expectedUrl)) {
+      console.log(`✓ File already exists at ${filename}`);
+      return { success: true, url: expectedUrl };
+    }
+
+    // Upload if doesn't exist
+    const { url } = await put(filename, fileContent, {
+      access: 'public',
+      addRandomSuffix: false // Use exact filename based on content hash
+    });
+
+    console.log(`✓ Uploaded ${path.basename(filePath)} to ${filename}`);
+    return { success: true, url };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error during blob upload'
+    };
+  }
 }
 
 interface ProcessingResult {
@@ -155,6 +286,7 @@ function ensureDir(dir: string) {
  */
 async function processImage(sourcePath: string, destDir: string, newFilename: string): Promise<ProcessingResult> {
   try {
+    console.log(`\nProcessing image: ${path.basename(sourcePath)}`);
     const ext = path.extname(sourcePath);
     const originalBasename = path.basename(sourcePath, ext);
     
@@ -188,23 +320,45 @@ async function processImage(sourcePath: string, destDir: string, newFilename: st
       throw error;
     }
 
+    // Calculate content hashes
+    const originalHash = await calculateFileHash(sourcePath);
+    
+    // Create temporary paths for processing
+    const tmpOriginalPath = path.join(TMP_DIR, `${originalHash}${ext}`);
+    const tmpThumbPath = path.join(TMP_DIR, `${originalHash}-thumb.jpg`);
+    
+    // Ensure tmp directory exists
+    ensureDir(TMP_DIR);
+    
+    // Copy original to tmp
+    fs.copyFileSync(sourcePath, tmpOriginalPath);
+
+    // Extract date from the standardized filename
+    const dateMatch = newFilename.match(/^(\d{4}-\d{2}-\d{2})/);
+    const dateStr = dateMatch ? dateMatch[1] : undefined;
+
+    // Upload original to blob storage
+    const originalUpload = await uploadToBlob(tmpOriginalPath, originalHash, dateStr);
+    if (!originalUpload.success || !originalUpload.url) {
+      throw new Error(`Failed to upload original: ${originalUpload.error}`);
+    }
+
     const dimensions: MediaMetadata = {
       width: metadata.width,
       height: metadata.height,
       aspectRatio: metadata.width / metadata.height,
-      originalFilename: path.basename(sourcePath)
+      originalFilename: path.basename(sourcePath),
+      type: 'image',
+      contentHash: originalHash,
+      urls: {
+        original: originalUpload.url,
+        thumb: '', // Will be set after thumbnail upload
+      }
     };
 
-    // Copy full-size image to public directory
-    if (!fs.existsSync(fullSizePath)) {
-      fs.copyFileSync(sourcePath, fullSizePath);
-    }
-
-    // Always create thumbnail
+    // Create and upload thumbnail
     try {
-      // Ensure thumbnail directory exists
-      ensureDir(path.dirname(thumbPath));
-
+      console.log('Creating thumbnail...');
       // Create thumbnail pipeline
       const pipeline = sharp(sourcePath)
         .resize(THUMBNAIL_WIDTH, null, {
@@ -213,32 +367,17 @@ async function processImage(sourcePath: string, destDir: string, newFilename: st
         })
         .jpeg({ quality: THUMBNAIL_QUALITY });
 
-      // Get info about the pipeline
-      const info = await pipeline.metadata();
-
-      // Write the file
-      await pipeline.toFile(thumbPath);
+      // Write to tmp file
+      await pipeline.toFile(tmpThumbPath);
       
-      // Wait a moment to ensure file is written
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      // Verify thumbnail was created
-      if (fs.existsSync(thumbPath)) {
-        const stats = fs.statSync(thumbPath);
-        
-        // Double check the file is readable
-        try {
-          await sharp(thumbPath).metadata();
-        } catch (verifyError) {
-          console.error(`Thumbnail verification failed: ${verifyError}`);
-          throw verifyError;
-        }
-      } else {
-        console.error(`Thumbnail creation failed - file not found: ${thumbPath}`);
-        throw new Error('Thumbnail file not created');
+      // Upload thumbnail
+      const thumbUpload = await uploadToBlob(tmpThumbPath, `${originalHash}-thumb`, dateStr); // Use same dateStr for thumbnail
+      if (!thumbUpload.success || !thumbUpload.url) {
+        throw new Error(`Failed to upload thumbnail: ${thumbUpload.error}`);
       }
+      dimensions.urls.thumb = thumbUpload.url;
     } catch (thumbError) {
-      console.error(`Error creating thumbnail for ${sourcePath}:`, thumbError);
+      console.error(`Error processing thumbnail for ${sourcePath}:`, thumbError);
       throw thumbError;
     }
 
@@ -255,8 +394,9 @@ async function processImage(sourcePath: string, destDir: string, newFilename: st
  * Process a video file to create web assets
  */
 async function processVideo(sourcePath: string, destDir: string): Promise<ProcessingResult> {
-  return new Promise((resolve) => {
+  return new Promise(async (resolve) => {
     try {
+      console.log(`\nProcessing video: ${path.basename(sourcePath)}`);
       const ext = path.extname(sourcePath);
       const originalBasename = path.basename(sourcePath, ext);
       
@@ -303,61 +443,97 @@ async function processVideo(sourcePath: string, destDir: string): Promise<Proces
           const thumbPath = path.join(destDir, `${newBasename}-thumb.jpg`);
           const previewPath = path.join(destDir, `${newBasename}-preview.mp4`);
 
-          // Skip if both thumbnail and preview already exist
-          if (fs.existsSync(thumbPath) && fs.existsSync(previewPath)) {
-            resolve({ 
-              success: true, 
-              newFilename,
-              dimensions: {
-                width,
-                height,
-                aspectRatio: width / height,
-                originalFilename: path.basename(sourcePath)
-              }
-            });
-            return;
+          // Calculate content hashes
+          const originalHash = await calculateFileHash(sourcePath);
+          
+          // Create temporary paths for processing
+          const tmpOriginalPath = path.join(TMP_DIR, `${originalHash}${ext}`);
+          const tmpThumbPath = path.join(TMP_DIR, `${originalHash}-thumb.jpg`);
+          const tmpPreviewPath = path.join(TMP_DIR, `${originalHash}-preview.mp4`);
+          
+          // Ensure tmp directory exists
+          ensureDir(TMP_DIR);
+          
+          // Copy original to tmp
+          fs.copyFileSync(sourcePath, tmpOriginalPath);
+
+          // Extract date from the standardized filename
+          const dateMatch = newFilename.match(/^(\d{4}-\d{2}-\d{2})/);
+          const dateStr = dateMatch ? dateMatch[1] : undefined;
+
+          // Upload original to blob storage
+          const originalUpload = await uploadToBlob(tmpOriginalPath, originalHash, dateStr);
+          if (!originalUpload.success || !originalUpload.url) {
+            throw new Error(`Failed to upload original: ${originalUpload.error}`);
           }
 
-          // Create thumbnail from video frame
-          ffmpeg(sourcePath)
-            .screenshots({
-              timestamps: ['1'],
-              filename: `${newBasename}-thumb.jpg`,
-              folder: destDir,
-              size: '800x?'
-            })
-            .on('end', () => {
-              // Create preview video
+          const dimensions: MediaMetadata = {
+            width,
+            height,
+            aspectRatio: width / height,
+            originalFilename: path.basename(sourcePath),
+            type: 'video',
+            contentHash: originalHash,
+            urls: {
+              original: originalUpload.url,
+              thumb: '', // Will be set after thumbnail upload
+              preview: '', // Will be set after preview upload
+            }
+          };
+
+          // Create thumbnail and preview
+          try {
+            console.log('Creating thumbnail...');
+            // Create thumbnail
+            await new Promise<void>((thumbResolve, thumbReject) => {
+              ffmpeg(sourcePath)
+                .screenshots({
+                  timestamps: ['1'],
+                  filename: `${originalHash}-thumb.jpg`,
+                  folder: TMP_DIR,
+                  size: '800x?'
+                })
+                .on('end', () => thumbResolve())
+                .on('error', (err) => thumbReject(err));
+            });
+
+            // Upload thumbnail
+            const thumbUpload = await uploadToBlob(tmpThumbPath, `${originalHash}-thumb`, dateStr);
+            if (!thumbUpload.success || !thumbUpload.url) {
+              throw new Error(`Failed to upload thumbnail: ${thumbUpload.error}`);
+            }
+            dimensions.urls.thumb = thumbUpload.url;
+
+            console.log('Creating preview...');
+            // Create preview
+            await new Promise<void>((previewResolve, previewReject) => {
               ffmpeg(sourcePath)
                 .duration(VIDEO_PREVIEW_DURATION)
                 .size(VIDEO_PREVIEW_SIZE)
-                .output(previewPath)
-                .on('end', () => {
-                  resolve({ 
-                    success: true,
-                    newFilename,
-                    dimensions: {
-                      width,
-                      height,
-                      aspectRatio: width / height,
-                      originalFilename: path.basename(sourcePath)
-                    }
-                  });
-                })
-                .on('error', (err: Error) => {
-                  resolve({
-                    success: false,
-                    error: `Error creating preview: ${err.message}`
-                  });
-                })
+                .output(tmpPreviewPath)
+                .on('end', () => previewResolve())
+                .on('error', (err) => previewReject(err))
                 .run();
-            })
-            .on('error', (err: Error) => {
-              resolve({
-                success: false,
-                error: `Error creating thumbnail: ${err.message}`
-              });
             });
+
+            // Upload preview
+            const previewUpload = await uploadToBlob(tmpPreviewPath, `${originalHash}-preview`, dateStr);
+            if (!previewUpload.success || !previewUpload.url) {
+              throw new Error(`Failed to upload preview: ${previewUpload.error}`);
+            }
+            dimensions.urls.preview = previewUpload.url;
+
+            resolve({ 
+              success: true,
+              newFilename,
+              dimensions
+            });
+          } catch (error) {
+            resolve({
+              success: false,
+              error: error instanceof Error ? error.message : 'Unknown error processing video assets'
+            });
+          }
       }).catch(error => {
         resolve({
           success: false,
@@ -374,307 +550,175 @@ async function processVideo(sourcePath: string, destDir: string): Promise<Proces
 }
 
 /**
- * Update metadata for a section directory
+ * Update in-memory metadata state
  */
-async function updateSectionMetadata(dir: string, filename: string, metadata: MediaMetadata) {
-  const metadataPath = path.join(dir, 'metadata.json');
-  let sectionMetadata: SectionMetadata = { images: {} };
-
+function updateMetadata(section: string, filename: string, metadata: MediaMetadata) {
   // Skip if this is a thumbnail or preview
   if (filename.includes('-thumb') || filename.includes('-preview')) {
     return;
   }
 
-  // Read existing metadata if it exists
-  if (fs.existsSync(metadataPath)) {
-    try {
-      sectionMetadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
-    } catch (error) {
-      console.error(`Error reading metadata: ${error}`);
-    }
+  // Initialize section if it doesn't exist
+  if (!processingState.sections[section]) {
+    processingState.sections[section] = { images: {} };
   }
 
   // Update metadata
-  sectionMetadata.images[filename] = metadata;
+  processingState.sections[section].images[filename] = metadata;
 
-  // Write updated metadata
+  // Write to tmp for recovery/debugging
   try {
-    fs.writeFileSync(metadataPath, JSON.stringify(sectionMetadata, null, 2));
+    fs.writeFileSync(TMP_METADATA_PATH, JSON.stringify(processingState, null, 2));
   } catch (error) {
-    console.error(`Error writing metadata: ${error}`);
+    console.error(`Error writing temporary metadata: ${error}`);
   }
 }
 
 /**
  * Process all media files in a directory
  */
-async function processDirectory(sourceDir: string, destDir: string) {
-  // Ensure destination directory exists
-  ensureDir(destDir);
-
-  // Initialize metadata
-  const metadataPath = path.join(destDir, 'metadata.json');
-  if (!fs.existsSync(metadataPath)) {
-    fs.writeFileSync(metadataPath, JSON.stringify({ images: {} }, null, 2));
-  }
-
-  // Read existing metadata
-  let metadata: SectionMetadata;
-  try {
-    metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
-  } catch (error) {
-    console.error(`Error reading metadata: ${error}`);
-    metadata = { images: {} };
-  }
-
+async function processDirectory(sourceDir: string, section: string = '') {
   const items = fs.readdirSync(sourceDir);
+  const mediaFiles = items.filter(item => {
+    const ext = path.extname(item).toLowerCase();
+    return SUPPORTED_IMAGE_TYPES.includes(ext) || SUPPORTED_VIDEO_TYPES.includes(ext);
+  });
+
+  if (mediaFiles.length > 0) {
+    console.log(`\nProcessing ${mediaFiles.length} files in ${section || 'root'}`);
+  }
+
+  // Reset processing state for this run
+  processingState = { sections: {} };
 
   for (const item of items) {
-    // Check if file has already been processed by looking for its original filename
-    const isAlreadyProcessed = Object.values(metadata.images).some(
-      meta => meta.originalFilename === item
-    );
-    
-    if (isAlreadyProcessed) {
-      continue;
-    }
-
     const sourcePath = path.join(sourceDir, item);
     const stat = fs.statSync(sourcePath);
 
     if (stat.isDirectory()) {
-      // Create corresponding directory
-      const subDestDir = path.join(destDir, item);
-      ensureDir(subDestDir);
+      // Process subdirectory with nested section name
+      const subSection = section ? `${section}/${item}` : item;
+      await processDirectory(sourcePath, subSection);
+      continue;
+    }
+
+    const ext = path.extname(item).toLowerCase();
+    if (!SUPPORTED_IMAGE_TYPES.includes(ext) && !SUPPORTED_VIDEO_TYPES.includes(ext)) {
+      continue;
+    }
+
+    // Calculate content hash first
+    const contentHash = await calculateFileHash(sourcePath);
+    
+    // Check if this content hash exists anywhere in the metadata
+    const existing = findExistingByHash(contentHash, processingState);
+    if (existing) {
+      console.log(`Skipping ${item} - content already exists as ${existing.section}/${existing.filename}`);
       
-      // Recursively process subdirectories
-      await processDirectory(sourcePath, subDestDir);
-    } else {
-      const ext = path.extname(item).toLowerCase();
+      // If it's in a different section, add a reference to it
+      if (existing.section !== section) {
+        if (!processingState.sections[section]) {
+          processingState.sections[section] = { images: {} };
+        }
+        processingState.sections[section].images[existing.filename] = existing.metadata;
+      }
+      continue;
+    }
       
-      if (SUPPORTED_IMAGE_TYPES.includes(ext)) {
-        // Generate standardized filename once and reuse it
-        const newFilename = await generateStandardFilename(sourcePath, destDir, ext);
-        const result = await processImage(sourcePath, destDir, newFilename);
+    if (SUPPORTED_IMAGE_TYPES.includes(ext)) {
+        // Generate standardized filename
+        const newFilename = await generateStandardFilename(sourcePath, TMP_DIR, ext);
+        const result = await processImage(sourcePath, TMP_DIR, newFilename);
         if (!result.success) {
           console.error(`Error processing image ${item}: ${result.error}`);
         } else if (result.dimensions) {
-          await updateSectionMetadata(destDir, newFilename, result.dimensions);
+          await updateMetadata(section, newFilename, result.dimensions);
         }
       } else if (SUPPORTED_VIDEO_TYPES.includes(ext)) {
-        const result = await processVideo(sourcePath, destDir);
+        const result = await processVideo(sourcePath, TMP_DIR);
         if (!result.success) {
           console.error(`Error processing video ${item}: ${result.error}`);
         } else if (result.dimensions && result.newFilename) {
-          await updateSectionMetadata(destDir, result.newFilename, result.dimensions);
+          await updateMetadata(section, result.newFilename, result.dimensions);
         }
       }
     }
   }
-}
 
 /**
- * Clean up orphaned processed files and metadata
+ * Upload metadata to blob storage
  */
-/**
- * Clean up orphaned processed files and metadata
- */
-function cleanupOrphaned(publicDir: string, originalsDir: string) {
-  // Skip if originals directory doesn't exist yet
-  if (!fs.existsSync(originalsDir)) {
-    return;
-  }
-
-  // Read metadata first
-  const metadataPath = path.join(publicDir, 'metadata.json');
-  if (!fs.existsSync(metadataPath)) {
-    return; // Skip cleanup if no metadata exists yet
-  }
-
-  let metadata: SectionMetadata;
+async function uploadMetadata(): Promise<string> {
+  console.log('\nUploading metadata to blob storage...');
+  
   try {
-    metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
-  } catch (error) {
-    console.error(`Error reading metadata: ${error}`);
-    return;
-  }
-
-  // Get list of original files
-  const originalFiles = fs.existsSync(originalsDir) ? fs.readdirSync(originalsDir) : [];
-
-  // Process each file in the public directory
-  const items = fs.readdirSync(publicDir);
-  for (const item of items) {
-    const publicPath = path.join(publicDir, item);
-    const stat = fs.statSync(publicPath);
-
-    if (stat.isDirectory()) {
-      // Handle subdirectories recursively
-      const originalDirPath = path.join(originalsDir, item);
-      if (fs.existsSync(originalDirPath)) {
-        cleanupOrphaned(publicPath, originalDirPath);
-      } else {
-        // Only remove empty directories
-        try {
-          const files = fs.readdirSync(publicPath);
-          if (files.length === 0) {
-            fs.rmdirSync(publicPath);
-          }
-        } catch (error) {
-          console.error(`Error cleaning directory ${publicPath}:`, error);
-        }
-      }
-      continue;
-    }
-
-    // Skip metadata.json
-    if (item === 'metadata.json') {
-      continue;
-    }
-
-    const basename = path.basename(item);
-    const ext = path.extname(item);
-
-    // Handle thumbnails and previews
-    if (basename.includes('-thumb') || basename.includes('-preview')) {
-      const mainBasename = basename
-        .replace('-thumb', '')
-        .replace('-preview', '');
-      
-      // Check if main file exists in metadata
-      const mainFileExists = Object.keys(metadata.images).some(f => 
-        f.startsWith(mainBasename) && !f.includes('-thumb') && !f.includes('-preview')
-      );
-
-      if (!mainFileExists) {
-        try {
-          fs.unlinkSync(publicPath);
-        } catch (error) {
-          console.error(`Error deleting ${publicPath}:`, error);
-        }
-      }
-      continue;
-    }
-
-    // Handle main files
-    const fileMetadata = metadata.images[basename];
-    if (!fileMetadata) {
-      // File exists but no metadata - might be in process of being created
-      continue;
-    }
-
-    // Check if original file still exists
-    const originalExists = originalFiles.some(f => f === fileMetadata.originalFilename);
-    if (!originalExists) {
-      try {
-        // Remove the file
-        fs.unlinkSync(publicPath);
-        // Remove metadata
-        delete metadata.images[basename];
-        // Remove associated thumbnails
-        const thumbPath = path.join(publicDir, `${path.basename(basename, ext)}-thumb.jpg`);
-        if (fs.existsSync(thumbPath)) {
-          fs.unlinkSync(thumbPath);
-        }
-      } catch (error) {
-        console.error(`Error cleaning up ${publicPath}:`, error);
-      }
-    }
-  }
-
-  // Write back metadata if it changed
-  try {
-    fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
-  } catch (error) {
-    console.error(`Error writing metadata: ${error}`);
-  }
-}
-
-/**
- * Validate metadata for missing dimensions
- */
-async function validateMetadata(dir: string): Promise<Array<{filename: string, originalFilename: string}>> {
-  const metadataPath = path.join(dir, 'metadata.json');
-  if (!fs.existsSync(metadataPath)) return [];
-  
-  const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
-  const missingDimensions = [];
-  
-  for (const [filename, data] of Object.entries<MediaMetadata>(metadata.images)) {
-    if (!data.width || !data.height || !data.aspectRatio) {
-      missingDimensions.push({
-        filename,
-        originalFilename: data.originalFilename
-      });
-    }
-  }
-  
-  return missingDimensions;
-}
-
-/**
- * Reprocess files with missing dimensions
- */
-async function reprocessMissingDimensions(dir: string) {
-  const missing = await validateMetadata(dir);
-  if (!missing || missing.length === 0) {
-    return;
-  }
-  
-  if (missing.length > 0) {
-    console.log(`Found ${missing.length} files with missing dimensions in ${dir}`);
-  }
-  
-  for (const item of missing) {
-    const sourcePath = path.join(ORIGINALS_DIR, item.originalFilename);
-    if (!fs.existsSync(sourcePath)) {
-      console.error(`Original file not found: ${sourcePath}`);
-      continue;
-    }
+    // Use in-memory state
+    const metadata = processingState;
     
-    const ext = path.extname(item.originalFilename);
-    if (SUPPORTED_IMAGE_TYPES.includes(ext)) {
-      await processImage(sourcePath, dir, item.filename);
-    } else if (SUPPORTED_VIDEO_TYPES.includes(ext)) {
-      await processVideo(sourcePath, dir);
+    // Generate timestamp for versioning
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    
+    // Upload to blob storage
+    const { url } = await put(
+      `photos/metadata/metadata-${timestamp}.json`,
+      JSON.stringify(metadata, null, 2),
+      {
+        access: 'public',
+        addRandomSuffix: false
+      }
+    );
+
+    // Also upload as latest.json for easy access
+    await put(
+      'photos/metadata/latest.json',
+      JSON.stringify(metadata, null, 2),
+      {
+        access: 'public',
+        addRandomSuffix: false
+      }
+    );
+
+    console.log('✓ Metadata uploaded successfully');
+    return url;
+  } catch (error) {
+    console.error('Error uploading metadata:', error);
+    throw error;
+  }
+}
+
+/**
+ * Clean up temporary directory
+ */
+async function cleanupTmp() {
+  if (fs.existsSync(TMP_DIR)) {
+    try {
+      console.log('\nCleaning up temporary files...');
+      fs.rmSync(TMP_DIR, { recursive: true, force: true });
+    } catch (error) {
+      console.error('Error cleaning up temporary directory:', error);
     }
   }
 }
 
-// Main execution
 async function main() {
   try {
     // Create directories if they don't exist
     ensureDir(ORIGINALS_DIR);
-    ensureDir(PUBLIC_DIR);
+    ensureDir(TMP_DIR);
 
-    // Clean up any orphaned files first
-    cleanupOrphaned(PUBLIC_DIR, ORIGINALS_DIR);
-    
+    console.log('Starting media processing...');
+    console.log(`Source directory: ${ORIGINALS_DIR}`);
+
     // Process all media files
-    await processDirectory(ORIGINALS_DIR, PUBLIC_DIR);
+    await processDirectory(ORIGINALS_DIR);
     
-    // Add validation step
-    await reprocessMissingDimensions(PUBLIC_DIR);
+    // Clean up temporary files
+    await cleanupTmp();
     
-    // Recursively validate subdirectories
-    const validateSubdirs = async (dir: string) => {
-      const items = fs.readdirSync(dir);
-      for (const item of items) {
-        const fullPath = path.join(dir, item);
-        if (fs.statSync(fullPath).isDirectory()) {
-          await reprocessMissingDimensions(fullPath);
-          await validateSubdirs(fullPath);
-        }
-      }
-    };
-    await validateSubdirs(PUBLIC_DIR);
-    
-    // Only output final status if there were any files processed
-    const hasProcessedFiles = fs.readdirSync(PUBLIC_DIR).length > 0;
-    if (hasProcessedFiles) {
-      console.log('Media processing completed');
-    }
+    // Upload metadata to blob storage
+    const metadataUrl = await uploadMetadata();
+    console.log(`\nMedia processing completed successfully`);
+    console.log(`Metadata URL: ${metadataUrl}`);
   } catch (error) {
     console.error('Error processing media:', error);
     process.exit(1);
