@@ -81,17 +81,25 @@ None currently
 - [x] Server actions implemented
 
 ### Milestone 4: Blob Storage Migration
-- [ ] Remove media from git (/public/photos)
+- [x] Remove media from git (/public/photos)
 - [x] Implement Vercel Blob storage for all media
 - [x] Update process-media.ts for blob workflow
-- [x] Create content-based hashing system
-- [x] Implement /tmp processing pipeline
-- [x] Generate unified metadata.json
+  - [x] Content-based hashing system
+  - [x] Smart file skipping
+  - [x] Temporary processing pipeline
+  - [x] Section-based metadata
+  - [x] Date-based organization
+  - [x] Metadata versioning
 - [x] Update media.ts for blob URLs
 - [x] Test with real media
 - [x] Verify blob URLs and metadata
-- [ ] Modify components for new URL structure
+- [x] Modify components for new URL structure
 - [ ] Implement URL caching
+
+### Known Issues
+- Metadata.json reset bug fixed: Now properly maintains state across all directories
+- Duplicate detection working: Files with same content hash are properly skipped
+- Metadata versioning: Each processing run creates timestamped backup
 
 ### Milestone 4: Polish
 - [ ] Performance optimization
@@ -127,7 +135,7 @@ None currently
 - [x] Architecture documentation
 - [x] Server actions documentation
 - [ ] Deployment guide
-- [ ] User guide
+- [x] User guide
 
 ## Future Considerations
 1. **Performance Enhancements**

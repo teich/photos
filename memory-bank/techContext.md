@@ -152,11 +152,16 @@ module.exports = {
 - Runtime data access
 
 ### Asset Handling
-- Next/Image for image optimization
-- Vercel Blob for video storage
-- Automated thumbnail generation
-- Video preview creation
-- Section-based organization
+- Vercel Blob storage for all media assets
+  - Content-addressed storage using SHA-256 hashing
+  - Date-based organization (YYYY/MM)
+  - Separate containers for originals/thumbs/previews
+  - Metadata versioning with timestamps
+- Automated media processing
+  - Smart skipping of existing content
+  - Temporary processing pipeline in /tmp
+  - Unified metadata.json generation
+  - Section-based organization
 
 ## Deployment Requirements
 
@@ -168,12 +173,23 @@ module.exports = {
 - Edge network delivery
 
 ### Environment Variables
-- None required in production
-- Development-only processing flags
-- Build-time configuration
+Required:
+```bash
+# Vercel Blob Storage (required)
+BLOB_READ_WRITE_TOKEN=  # For media processing
+```
+
+Optional:
+```bash
+# Processing Configuration
+DEFAULT_PHOTOS_DIR=     # Custom source directory (default: ~/Pictures/web)
+```
 
 ### Build Artifacts
 - Server components
 - Client components
-- Optimized media assets
-- Pre-generated thumbnails
+- Blob storage assets:
+  - Original media files
+  - Generated thumbnails
+  - Video previews
+  - Versioned metadata

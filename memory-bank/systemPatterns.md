@@ -65,32 +65,124 @@ my-photo-blog/
 ## Technical Patterns
 
 ### 1. Media Storage Pattern
-- **Source Storage**
-  ```
-  photos/                   # Original media files
-  ├── [section-folders]/    # e.g. "2024-baja"
-      ├── photo1.jpg        # Original images
-      └── video1.mp4        # Original videos
-  ```
 
-- **Development Storage**
-  ```
-  public/photos/            # Web-optimized assets
-  ├── [section-folders]/    # Matches original section
-      ├── photo1.jpg        # Full-size copy for web
-      ├── photo1-thumb.jpg  # Generated thumbnail
-      ├── video1-thumb.jpg  # Video thumbnail
-      ├── video1-preview.mp4 # Generated preview
-      └── metadata.json     # Dimensions and metadata
-  ```
+#### Source Organization
+```
+~/Pictures/web/           # Default source directory (configurable)
+├── [section-folders]/    # e.g. "2024-baja"
+    ├── photo1.jpg       # Original images
+    └── video1.mp4       # Original videos
+```
 
-- **Production Storage**
-  - Original files: Not in git, stored locally in `/photos`
-  - Web-optimized images: In git under `/public/photos`, optimized by Next/Image on Vercel
-  - Thumbnails/Previews: In git under `/public/photos`
-  - Large videos: Uploaded to Vercel Blob storage
-  - Video previews: In git under `/public/photos` (3s, 480p)
-  - Metadata: In git under `/public/photos/[section]/metadata.json`
+#### Processing Pipeline
+```
+/tmp/photos-processing/  # Temporary processing directory
+├── [content-hash].jpg   # Original with content-based name
+├── [hash]-thumb.jpg     # Generated thumbnail
+├── [hash]-preview.mp4   # Generated video preview
+└── metadata.json        # Temporary metadata state
+```
+
+#### Blob Storage Structure
+```
+photos/                 # Root blob container
+├── originals/         # Full-size media
+│   ├── YYYY/MM/      # Date-based organization
+│   └── [hash].ext    # Content-addressed storage
+├── thumbs/           # Thumbnail images
+│   ├── YYYY/MM/
+│   └── [hash]-thumb.jpg
+├── previews/         # Video previews
+│   ├── YYYY/MM/
+│   └── [hash]-preview.mp4
+└── metadata/         # Metadata storage
+    ├── latest.json              # Current state
+    └── metadata-[timestamp].json # Version history
+```
+
+### 2. Content Addressing Pattern
+
+#### Hash Generation
+```typescript
+async function calculateFileHash(filePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(filePath);
+    stream.on('data', chunk => hash.update(chunk));
+    stream.on('end', () => resolve(hash.digest('hex')));
+  });
+}
+```
+
+#### Deduplication Strategy
+```typescript
+function findExistingByHash(
+  hash: string,
+  metadata: { sections: { [key: string]: SectionMetadata } }
+): { section: string; filename: string; metadata: MediaMetadata } | undefined {
+  for (const [section, sectionData] of Object.entries(metadata.sections)) {
+    for (const [filename, itemData] of Object.entries(sectionData.images)) {
+      if (itemData.contentHash === hash) {
+        return { section, filename, metadata: itemData };
+      }
+    }
+  }
+  return undefined;
+}
+```
+
+### 3. Metadata Management Pattern
+
+#### Section-Based Organization
+```typescript
+interface SectionMetadata {
+  images: {
+    [filename: string]: MediaMetadata;
+  };
+}
+
+interface MediaMetadata {
+  width: number;
+  height: number;
+  aspectRatio: number;
+  originalFilename: string;
+  type: 'image' | 'video';
+  contentHash: string;
+  urls: {
+    original: string;
+    thumb: string;
+    preview?: string;
+  };
+}
+```
+
+#### State Management
+```typescript
+// In-memory state during processing
+let processingState: { 
+  sections: { 
+    [key: string]: SectionMetadata 
+  } 
+} = { sections: {} };
+
+// Initialize once at start
+function initializeProcessingState() {
+  processingState = { sections: {} };
+}
+
+// Update per file
+function updateMetadata(section: string, filename: string, metadata: MediaMetadata) {
+  if (!processingState.sections[section]) {
+    processingState.sections[section] = { images: {} };
+  }
+  processingState.sections[section].images[filename] = metadata;
+}
+```
+
+#### Version Control
+- Timestamp-based versioning for metadata files
+- Latest.json always points to current state
+- Historical versions preserved with ISO timestamp names
 
 ### 2. Data Loading
 ```typescript

@@ -31,28 +31,62 @@ A high-performance, statically-generated photo and video gallery built with Next
 
 ## 📦 Installation
 
-1. Clone the repository:
+1. Clone and install dependencies:
 ```bash
 git clone [repository-url]
 cd photo-gallery
-```
-
-2. Install dependencies:
-```bash
 npm install
 ```
 
+2. Set up Vercel Blob Storage:
+   - Create a Vercel account if needed
+   - Get a BLOB_READ_WRITE_TOKEN from your Vercel project settings
+   - Add token to .env file:
+   ```
+   BLOB_READ_WRITE_TOKEN=your_token_here
+   ```
+
 3. Add your media:
-- Place photos/videos in `public/photos/[section-name]/`
-- Run media processing:
-```bash
-npm run process-media
-```
+   - Place photos/videos in `~/Pictures/web/` (or custom directory)
+   - Run media processing:
+   ```bash
+   npm run process-media [optional-custom-path]
+   ```
 
 4. Start development server:
 ```bash
 npm run dev
 ```
+
+## 🎬 Media Processing
+
+The `process-media` script handles all media optimization:
+
+### Smart Processing
+- Only processes new or modified files
+- Detects duplicates using content hashing
+- Skips already uploaded files
+- Maintains consistent URLs based on content
+
+### Automatic Organization
+- Preserves folder structure as sections
+- Generates standardized filenames with dates
+- Creates unified metadata.json
+- Supports nested directories
+
+### Asset Generation
+- Images:
+  - Web-optimized originals
+  - Thumbnails (800px width, 85% quality)
+- Videos:
+  - Thumbnails from first frame
+  - 3-second preview clips (480p)
+
+### Cloud Storage
+- Automatically uploads to Vercel Blob storage
+- Organizes by year/month
+- Separates originals, thumbnails, and previews
+- Maintains metadata version history
 
 ## 🎯 Development
 
