@@ -580,9 +580,6 @@ async function processDirectory(sourceDir: string, section: string = '') {
     process.stdout.write(`\nProcessing ${mediaFiles.length} files in ${section || 'root'}: `);
   }
 
-  // Reset processing state for this run
-  processingState = { sections: {} };
-
   for (const item of items) {
     const sourcePath = path.join(sourceDir, item);
     const stat = fs.statSync(sourcePath);
@@ -701,6 +698,9 @@ async function main() {
 
     console.log('Starting media processing...');
     console.log(`Source directory: ${ORIGINALS_DIR}`);
+
+    // Reset processing state for this run
+    processingState = { sections: {} };
 
     // Process all media files
     await processDirectory(ORIGINALS_DIR);
