@@ -22,6 +22,12 @@ export function Lightbox({ item, allItems }: LightboxProps) {
   
   // Navigation state management
   const [isNavigating, setIsNavigating] = useState(false);
+  const [touchStart, setTouchStart] = useState<number | null>(null);
+  const [touchMove, setTouchMove] = useState<number | null>(null);
+  const [isSwiping, setIsSwiping] = useState(false);
+  
+  // Constants for swipe handling
+  const SWIPE_THRESHOLD = 50; // Minimum distance for a swipe
   const navigationState = useRef({
     isProcessing: false,
     lastRequestTime: 0,
@@ -164,6 +170,43 @@ export function Lightbox({ item, allItems }: LightboxProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [close, navigateToItem, currentIndex]);
 
+  // Touch event handlers
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    setTouchStart(e.touches[0].clientX);
+    setIsSwiping(true);
+  }, []);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!touchStart) return;
+    setTouchMove(e.touches[0].clientX);
+  }, [touchStart]);
+
+  const handleTouchEnd = useCallback(() => {
+    if (!touchStart || !touchMove) {
+      setIsSwiping(false);
+      setTouchStart(null);
+      setTouchMove(null);
+      return;
+    }
+
+    const swipeDistance = touchMove - touchStart;
+    const isSignificantSwipe = Math.abs(swipeDistance) >= SWIPE_THRESHOLD;
+
+    if (isSignificantSwipe) {
+      if (swipeDistance > 0 && currentIndex > 0) {
+        // Swipe right -> previous image
+        navigateToItem(currentIndex - 1);
+      } else if (swipeDistance < 0 && currentIndex < allItems.length - 1) {
+        // Swipe left -> next image
+        navigateToItem(currentIndex + 1);
+      }
+    }
+
+    setIsSwiping(false);
+    setTouchStart(null);
+    setTouchMove(null);
+  }, [touchStart, touchMove, currentIndex, allItems.length, navigateToItem]);
+
   return (
     <div 
       className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center"
@@ -171,7 +214,12 @@ export function Lightbox({ item, allItems }: LightboxProps) {
     >
       <div className="relative w-full h-full flex items-center justify-center group">
         {item.type === "image" ? (
-          <div className="relative h-screen w-screen">
+          <div 
+            className="relative h-screen w-screen"
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+          >
             {isNavigating && (
               <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50">
                 <div className="animate-spin rounded-full h-12 w-12 border-4 border-white border-t-transparent"></div>
@@ -180,12 +228,13 @@ export function Lightbox({ item, allItems }: LightboxProps) {
             <Image
               src={item.url}
               alt={item.filename}
-              className={`transition-opacity duration-300 ${
+              className={`transition-all duration-300 ${
                 isNavigating ? 'opacity-50' : 'opacity-100'
-              }`}
+              } ${isSwiping && touchMove && touchStart ? `translate-x-[${Math.round((touchMove - touchStart) / 2)}px]` : 'translate-x-0'}`}
               fill
               style={{ objectFit: 'contain' }}
               onClick={(e) => e.stopPropagation()}
+              draggable={false}
               priority={true}
               sizes="100vw"
               quality={90}

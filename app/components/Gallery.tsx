@@ -38,6 +38,8 @@ export function Gallery({ items }: GalleryProps) {
   // Check if the target image is in our items list
   const targetImageInItems = items.some(item => item.id === currentImageId);
 
+  const scale = useScaleFactor();
+  
   // Calculate and set scroll position when current image changes
   useEffect(() => {
     if (!currentImageId || rows.length === 0 || !targetImageInItems) {
@@ -68,10 +70,8 @@ export function Gallery({ items }: GalleryProps) {
     }, 0);
 
     return () => clearTimeout(timeoutId);
-  }, [rows, currentImageId, targetImageInItems]);
+  }, [rows, currentImageId, targetImageInItems, scale]);
 
-  const scale = useScaleFactor();
-  
   // Calculate styles with scaling
   const [windowWidth, setWindowWidth] = useState(0);
 
