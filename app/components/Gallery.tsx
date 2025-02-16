@@ -26,7 +26,7 @@ export function Gallery({ items }: GalleryProps) {
   const [getLastViewedImage] = useRouterState<string>('lastViewedImage');
 
   // Calculate layout using fixed desktop width
-  const { rows } = useLayoutEngine(items, DESKTOP_WIDTH, {
+  const { rows, totalHeight } = useLayoutEngine(items, DESKTOP_WIDTH, {
     targetRowHeight: GALLERY_CONFIG.targetRowHeight,
     spacing: GALLERY_CONFIG.horizontalSpacing,
     tolerance: 20
@@ -55,7 +55,7 @@ export function Gallery({ items }: GalleryProps) {
           found = true;
           break;
         }
-        position += row.height + GALLERY_CONFIG.verticalSpacing;
+        position += (row.height + GALLERY_CONFIG.verticalSpacing) * scale;
       }
 
       if (found) {
@@ -85,30 +85,32 @@ export function Gallery({ items }: GalleryProps) {
   }, []);
 
   const styles = useMemo(() => {
+    const scaledWidth = Math.round(DESKTOP_WIDTH * scale);
+    const scaledHeight = Math.round(totalHeight * scale);
+    const scaledVerticalSpacing = Math.round(GALLERY_CONFIG.verticalSpacing * scale);
+
     return {
       wrapper: {
         width: '100%',
-        minHeight: '100vh',
         display: 'flex',
         justifyContent: 'center',
         alignItems: 'flex-start',
         padding: '20px 0',
         overflow: 'hidden',
-        opacity: windowWidth ? 1 : 0, // Prevent layout shift
-        transition: 'opacity 0.2s ease-in'
+        opacity: windowWidth ? 1 : 0,
+        transition: 'opacity 0.2s ease-in',
+        minHeight: '100vh'
       },
       container: {
         display: 'flex',
         flexDirection: 'column' as const,
-        gap: `${GALLERY_CONFIG.verticalSpacing}px`,
-        width: `${DESKTOP_WIDTH}px`,
-        transform: `scale(${scale})`,
-        transformOrigin: 'center top',
-        willChange: 'transform',
-        transition: 'transform 0.2s ease-out'
+        gap: `${scaledVerticalSpacing}px`,
+        width: `${scaledWidth}px`,
+        height: `${scaledHeight}px`,
+        position: 'relative' as const,
       }
     };
-  }, [scale, windowWidth]);
+  }, [scale, windowWidth, totalHeight]);
 
   return (
     <div style={styles.wrapper}>
@@ -121,37 +123,37 @@ export function Gallery({ items }: GalleryProps) {
           key={rowIndex}
           className="flex"
           style={{ 
-            height: row.height, 
-            gap: `${GALLERY_CONFIG.horizontalSpacing}px` 
+            height: Math.round(row.height * scale), 
+            gap: `${Math.round(GALLERY_CONFIG.horizontalSpacing * scale)}px`,
           }}
         >
           {row.items.map((item) => (
             <div 
               key={item.id}
               className="relative bg-gray-100 overflow-hidden"
-              style={{ width: item.width }}
+              style={{ width: Math.round(item.width * scale) }}
             >
               <Link href={`/${item.id}`} className="block w-full h-full">
                 {item.type === 'image' ? (
                   <Image
                     src={item.thumbnailUrl}
                     alt={item.filename}
-                    width={Math.round(item.width)}
-                    height={Math.round(item.height)}
+                    width={Math.round(item.width * scale)}
+                    height={Math.round(item.height * scale)}
                     priority={rowIndex === 0}
                     className="object-cover w-full h-full hover:opacity-95 transition-opacity duration-300"
-                    sizes={`${Math.round((item.width / DESKTOP_WIDTH) * 100)}vw`}
+                    sizes="100vw"
                   />
                 ) : (
                   <div className="relative h-full">
                     <Image
                       src={item.thumbnailUrl}
                       alt={item.filename}
-                      width={Math.round(item.width)}
-                      height={Math.round(item.height)}
+                      width={Math.round(item.width * scale)}
+                      height={Math.round(item.height * scale)}
                       priority={rowIndex === 0}
                       className="object-cover w-full h-full hover:opacity-95 transition-opacity duration-300"
-                      sizes={`${Math.round((item.width / DESKTOP_WIDTH) * 100)}vw`}
+                      sizes="100vw"
                     />
                     <div className="absolute inset-0 flex items-center justify-center bg-black/20 pointer-events-none">
                       <svg className="w-12 h-12 text-white" fill="currentColor" viewBox="0 0 24 24">

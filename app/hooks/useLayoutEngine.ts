@@ -155,9 +155,17 @@ export function useLayoutEngine(
     // Calculate layout with all items, using default aspect ratio for those without dimensions
     const rows = calculateLayout(items, layoutOptions);
     
+    // Calculate total height including vertical spacing between rows
+    const totalHeight = rows.reduce((sum, row, index) => {
+      const rowHeight = row.height;
+      // Add spacing between rows (except after the last row)
+      const spacing = index < rows.length - 1 ? layoutOptions.spacing : 0;
+      return sum + rowHeight + spacing;
+    }, 0);
+
     return {
       rows,
-      totalHeight: rows.reduce((sum, row) => sum + row.height, 0)
+      totalHeight
     };
   }, [items, containerWidth, options]);
 }
