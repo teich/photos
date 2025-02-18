@@ -145,22 +145,18 @@ export function Gallery({ items }: GalleryProps) {
                     sizes="100vw"
                   />
                 ) : (
-                  <div className="relative h-full">
-                    <Image
-                      src={item.thumbnailUrl}
-                      alt={item.filename}
-                      width={Math.round(item.width * scale)}
-                      height={Math.round(item.height * scale)}
-                      priority={rowIndex === 0}
-                      className="object-cover w-full h-full hover:opacity-95 transition-opacity duration-300"
-                      sizes="100vw"
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/20 pointer-events-none">
-                      <svg className="w-12 h-12 text-white" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M8 5v14l11-7z" />
-                      </svg>
-                    </div>
-                  </div>
+                  <video
+                    src={item.previewUrl}
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
+                    className="object-cover w-full h-full hover:opacity-95 transition-opacity duration-300"
+                    style={{
+                      width: Math.round(item.width * scale),
+                      height: Math.round(item.height * scale)
+                    }}
+                  />
                 )}
               </Link>
             </div>

@@ -76,7 +76,7 @@ if (!fs.existsSync(ORIGINALS_DIR)) {
 }
 const THUMBNAIL_WIDTH = 800;
 const THUMBNAIL_QUALITY = 85;
-const VIDEO_PREVIEW_DURATION = 3; // seconds
+const VIDEO_PREVIEW_DURATION = 10; // seconds
 const VIDEO_PREVIEW_SIZE = '480x?'; // height will maintain aspect ratio
 
 // Supported file types
