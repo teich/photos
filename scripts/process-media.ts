@@ -5,7 +5,7 @@ import sharp from 'sharp';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import exifReader from 'exif-reader';
-import { S3Client, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, HeadObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import crypto from 'crypto';
 
 // Configure S3 client for R2
@@ -38,6 +38,12 @@ interface ExifData {
 // Configure ffmpeg path
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
+// Processing constants and settings
+const THUMBNAIL_WIDTH = 800;
+const THUMBNAIL_QUALITY = 85;
+const VIDEO_PREVIEW_DURATION = 11; // seconds
+const VIDEO_PREVIEW_SIZE = '480x?'; // height will maintain aspect ratio
+
 // Get input directory from command line args or use default
 const DEFAULT_PHOTOS_DIR = path.join(os.homedir(), 'Pictures', 'web');
 const inputDir = process.argv[2] || DEFAULT_PHOTOS_DIR;
@@ -45,13 +51,66 @@ const ORIGINALS_DIR = path.resolve(inputDir);  // Source directory for original 
 const TMP_DIR = path.join(os.tmpdir(), 'photos-processing');  // Temporary processing directory
 const TMP_METADATA_PATH = path.join(TMP_DIR, 'metadata.json');  // Temporary metadata file
 
+// Processing settings interface and current configuration
+interface ProcessingSettings {
+  thumbnailWidth: number;
+  thumbnailQuality: number;
+  videoPreviewDuration: number;
+  videoPreviewSize: string;
+  version: number;
+}
+
+const CURRENT_SETTINGS: ProcessingSettings = {
+  thumbnailWidth: THUMBNAIL_WIDTH,
+  thumbnailQuality: THUMBNAIL_QUALITY,
+  videoPreviewDuration: VIDEO_PREVIEW_DURATION,
+  videoPreviewSize: VIDEO_PREVIEW_SIZE,
+  version: 1  // Increment this when changing any settings
+};
+
 // In-memory metadata state
-let processingState: { sections: { [key: string]: SectionMetadata } } = { sections: {} };
+interface ProcessingState {
+  sections: { [key: string]: SectionMetadata };
+  directoryHashes: { [path: string]: string };
+  settings: ProcessingSettings;
+}
+
+let processingState: ProcessingState = { 
+  sections: {},
+  directoryHashes: {},
+  settings: CURRENT_SETTINGS
+};
 
 // Ensure R2 credentials are set
 if (!process.env.ACCESS_KEY_ID || !process.env.SECRET_ACCESS_KEY || !process.env.S3_ENDPOINT) {
   console.error('Error: R2 credentials are not properly configured');
   process.exit(1);
+}
+
+/**
+ * Calculate a hash for an entire directory based on its media files
+ */
+async function calculateDirectoryHash(dirPath: string): Promise<string> {
+  const items = fs.readdirSync(dirPath);
+  const mediaFiles = items
+    .filter(item => {
+      const ext = path.extname(item).toLowerCase();
+      return SUPPORTED_IMAGE_TYPES.includes(ext) || SUPPORTED_VIDEO_TYPES.includes(ext);
+    })
+    .sort(); // Ensure consistent ordering
+
+  // Combine file stats into a string
+  let contentString = '';
+  for (const file of mediaFiles) {
+    const filePath = path.join(dirPath, file);
+    const stats = fs.statSync(filePath);
+    contentString += `${file}:${stats.size}:${stats.mtimeMs};`;
+  }
+
+  // Generate hash
+  const hash = crypto.createHash('sha256');
+  hash.update(contentString);
+  return hash.digest('hex');
 }
 
 /**
@@ -74,10 +133,6 @@ if (!fs.existsSync(ORIGINALS_DIR)) {
   console.error(`Please create the directory or specify a different path.`);
   process.exit(1);
 }
-const THUMBNAIL_WIDTH = 800;
-const THUMBNAIL_QUALITY = 85;
-const VIDEO_PREVIEW_DURATION = 10; // seconds
-const VIDEO_PREVIEW_SIZE = '480x?'; // height will maintain aspect ratio
 
 // Supported file types
 const SUPPORTED_IMAGE_TYPES = ['.jpg', '.jpeg', '.png', '.webp'];
@@ -607,6 +662,17 @@ async function processDirectory(sourceDir: string, section: string = '') {
     return SUPPORTED_IMAGE_TYPES.includes(ext) || SUPPORTED_VIDEO_TYPES.includes(ext);
   });
 
+  // Only check directory hash for non-root directories
+  if (section !== '') {
+    const dirHash = await calculateDirectoryHash(sourceDir);
+    if (processingState.directoryHashes[sourceDir] === dirHash) {
+      console.log(`\nSkipping unchanged directory: ${section}`);
+      return;
+    }
+    // Store new hash
+    processingState.directoryHashes[sourceDir] = dirHash;
+  }
+
   if (mediaFiles.length > 0) {
     process.stdout.write(`\nProcessing ${mediaFiles.length} files in ${section || 'root'}: `);
   }
@@ -630,9 +696,16 @@ async function processDirectory(sourceDir: string, section: string = '') {
     // Calculate content hash first
     const contentHash = await calculateFileHash(sourcePath);
     
-    // Check if this content hash exists anywhere in the metadata
+    // Check if this content hash exists and if settings have changed
     const existing = findExistingByHash(contentHash, processingState);
-    if (existing) {
+    const settingsChanged = !processingState.settings || 
+      processingState.settings.version !== CURRENT_SETTINGS.version ||
+      processingState.settings.thumbnailWidth !== CURRENT_SETTINGS.thumbnailWidth ||
+      processingState.settings.thumbnailQuality !== CURRENT_SETTINGS.thumbnailQuality ||
+      processingState.settings.videoPreviewDuration !== CURRENT_SETTINGS.videoPreviewDuration ||
+      processingState.settings.videoPreviewSize !== CURRENT_SETTINGS.videoPreviewSize;
+
+    if (existing && !settingsChanged) {
       process.stdout.write('s'); // 's' for skipped
       
       // If it's in a different section, add a reference to it
@@ -643,6 +716,8 @@ async function processDirectory(sourceDir: string, section: string = '') {
         processingState.sections[section].images[existing.filename] = existing.metadata;
       }
       continue;
+    } else if (existing && settingsChanged) {
+      process.stdout.write('r'); // 'r' for regenerating
     }
       
     if (SUPPORTED_IMAGE_TYPES.includes(ext)) {
@@ -721,6 +796,36 @@ async function cleanupTmp() {
   }
 }
 
+/**
+ * Load previous metadata from R2
+ */
+async function loadPreviousMetadata(): Promise<ProcessingState> {
+  try {
+    console.log('Loading previous metadata from R2...');
+    // Try to get latest.json from R2
+    const command = new GetObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: 'metadata/latest.json'
+    });
+    const response = await s3Client.send(command);
+    const data = await response.Body?.transformToString();
+    if (!data) {
+      throw new Error('No data in metadata file');
+    }
+    const metadata = JSON.parse(data) as ProcessingState;
+    console.log('Previous metadata loaded successfully');
+    return metadata;
+  } catch (error) {
+    console.log('No previous metadata found, starting fresh');
+    // Return empty state if no previous metadata
+    return { 
+      sections: {}, 
+      directoryHashes: {},
+      settings: CURRENT_SETTINGS
+    };
+  }
+}
+
 async function main() {
   try {
     // Create directories if they don't exist
@@ -730,8 +835,8 @@ async function main() {
     console.log('Starting media processing...');
     console.log(`Source directory: ${ORIGINALS_DIR}`);
 
-    // Reset processing state for this run
-    processingState = { sections: {} };
+    // Load previous metadata
+    processingState = await loadPreviousMetadata();
 
     // Process all media files
     await processDirectory(ORIGINALS_DIR);
