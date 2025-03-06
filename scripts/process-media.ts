@@ -5,7 +5,7 @@ import sharp from 'sharp';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import exifReader from 'exif-reader';
-import { S3Client, PutObjectCommand, HeadObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, HeadObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import crypto from 'crypto';
 
 // Configure S3 client for R2
@@ -50,6 +50,9 @@ const inputDir = process.argv[2] || DEFAULT_PHOTOS_DIR;
 const ORIGINALS_DIR = path.resolve(inputDir);  // Source directory for original files
 const TMP_DIR = path.join(os.tmpdir(), 'photos-processing');  // Temporary processing directory
 const TMP_METADATA_PATH = path.join(TMP_DIR, 'metadata.json');  // Temporary metadata file
+
+// Add force flag at the top with other constants
+const FORCE_REPROCESS = process.argv.includes('--force');
 
 // Processing settings interface and current configuration
 interface ProcessingSettings {
@@ -653,6 +656,74 @@ function updateMetadata(section: string, filename: string, metadata: MediaMetada
 }
 
 /**
+ * Check for deleted files in a directory by comparing current files with metadata
+ */
+async function checkDeletedFiles(sourceDir: string, section: string = '') {
+  // Get all files currently in the directory
+  const currentFiles = fs.readdirSync(sourceDir)
+    .filter(item => {
+      const ext = path.extname(item).toLowerCase();
+      return SUPPORTED_IMAGE_TYPES.includes(ext) || SUPPORTED_VIDEO_TYPES.includes(ext);
+    });
+
+  // Get all files in metadata for this section
+  const sectionData = processingState.sections[section];
+  if (!sectionData) return;
+
+  // Get content hashes of current files
+  const currentHashes = new Set<string>();
+  for (const file of currentFiles) {
+    const filePath = path.join(sourceDir, file);
+    const hash = await calculateFileHash(filePath);
+    currentHashes.add(hash);
+  }
+
+  // Find files that are in metadata but not in current directory
+  const deletedFiles = Object.entries(sectionData.images)
+    .filter(([_, metadata]) => !currentHashes.has(metadata.contentHash));
+  
+  if (deletedFiles.length > 0) {
+    console.log(`\nFound ${deletedFiles.length} deleted files in ${section || 'root'}:`);
+    for (const [filename, metadata] of deletedFiles) {
+      console.log(`- ${filename} (${metadata.type})`);
+      
+      // Delete from S3
+      try {
+        // Delete original
+        const originalKey = metadata.urls.original.replace(DOMAIN + '/', '');
+        await s3Client.send(new DeleteObjectCommand({
+          Bucket: BUCKET_NAME,
+          Key: originalKey
+        }));
+        
+        // Delete thumbnail
+        const thumbKey = metadata.urls.thumb.replace(DOMAIN + '/', '');
+        await s3Client.send(new DeleteObjectCommand({
+          Bucket: BUCKET_NAME,
+          Key: thumbKey
+        }));
+        
+        // Delete preview if it's a video
+        if (metadata.type === 'video' && metadata.urls.preview) {
+          const previewKey = metadata.urls.preview.replace(DOMAIN + '/', '');
+          await s3Client.send(new DeleteObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: previewKey
+          }));
+        }
+        
+        // Remove from metadata
+        delete sectionData.images[filename];
+        process.stdout.write('d'); // 'd' for deleted
+      } catch (error) {
+        console.error(`Error deleting ${filename}:`, error);
+        process.stdout.write('x'); // 'x' for error
+      }
+    }
+  }
+}
+
+/**
  * Process all media files in a directory
  */
 async function processDirectory(sourceDir: string, section: string = '') {
@@ -662,15 +733,22 @@ async function processDirectory(sourceDir: string, section: string = '') {
     return SUPPORTED_IMAGE_TYPES.includes(ext) || SUPPORTED_VIDEO_TYPES.includes(ext);
   });
 
-  // Only check directory hash for non-root directories
+  // Check directory hash for non-root directories
+  let shouldProcess = FORCE_REPROCESS;
   if (section !== '') {
     const dirHash = await calculateDirectoryHash(sourceDir);
-    if (processingState.directoryHashes[sourceDir] === dirHash) {
+    if (processingState.directoryHashes[sourceDir] === dirHash && !FORCE_REPROCESS) {
       console.log(`\nSkipping unchanged directory: ${section}`);
       return;
     }
     // Store new hash
     processingState.directoryHashes[sourceDir] = dirHash;
+    shouldProcess = true;
+  }
+
+  // Only check for deleted files if we're processing this directory
+  if (shouldProcess) {
+    await checkDeletedFiles(sourceDir, section);
   }
 
   if (mediaFiles.length > 0) {
