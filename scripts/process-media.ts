@@ -904,6 +904,64 @@ async function loadPreviousMetadata(): Promise<ProcessingState> {
   }
 }
 
+/**
+ * Check for deleted directories by comparing metadata sections with current directory structure
+ */
+async function checkDeletedDirectories() {
+  // Get all sections from metadata
+  const sections = Object.keys(processingState.sections);
+  
+  for (const section of sections) {
+    // Skip root section
+    if (section === '') continue;
+    
+    // Check if directory exists
+    const dirPath = path.join(ORIGINALS_DIR, section);
+    if (!fs.existsSync(dirPath)) {
+      console.log(`\nFound deleted directory: ${section}`);
+      
+      // Get all files in this section
+      const sectionData = processingState.sections[section];
+      for (const [filename, metadata] of Object.entries(sectionData.images)) {
+        console.log(`- Removing ${filename}`);
+        
+        try {
+          // Delete from S3
+          const originalKey = metadata.urls.original.replace(DOMAIN + '/', '');
+          await s3Client.send(new DeleteObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: originalKey
+          }));
+          
+          const thumbKey = metadata.urls.thumb.replace(DOMAIN + '/', '');
+          await s3Client.send(new DeleteObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: thumbKey
+          }));
+          
+          if (metadata.type === 'video' && metadata.urls.preview) {
+            const previewKey = metadata.urls.preview.replace(DOMAIN + '/', '');
+            await s3Client.send(new DeleteObjectCommand({
+              Bucket: BUCKET_NAME,
+              Key: previewKey
+            }));
+          }
+          
+          process.stdout.write('d'); // 'd' for deleted
+        } catch (error) {
+          console.error(`Error deleting ${filename}:`, error);
+          process.stdout.write('x'); // 'x' for error
+        }
+      }
+      
+      // Remove section from metadata
+      delete processingState.sections[section];
+      // Remove directory hash
+      delete processingState.directoryHashes[dirPath];
+    }
+  }
+}
+
 async function main() {
   try {
     // Create directories if they don't exist
@@ -915,6 +973,9 @@ async function main() {
 
     // Load previous metadata
     processingState = await loadPreviousMetadata();
+
+    // Check for deleted directories first
+    await checkDeletedDirectories();
 
     // Process all media files
     await processDirectory(ORIGINALS_DIR);
