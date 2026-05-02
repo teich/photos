@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "process-media": "tsx scripts/build-gallery.ts",
+    "restore-r2-originals": "tsx scripts/restore-r2-originals.ts",
     "test": "node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {

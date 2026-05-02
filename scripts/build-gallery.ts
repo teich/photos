@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { spawn } from "node:child_process";
 import { copyFile, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
@@ -12,6 +13,7 @@ interface AlbumMetadata {
   cover?: string;
   description?: string;
   order?: string[];
+  display?: "folder" | "inline";
 }
 
 interface MediaMetadata {
@@ -85,6 +87,9 @@ async function scanAlbum(state: BuildState, absoluteDir: string, albumId: string
     path: albumId,
     slug: albumId.split("/").at(-1) ?? "",
     title: metadata?.title ?? (albumId ? titleFromSlug(path.basename(albumId)) : "Photos"),
+    display: metadata?.display ?? (albumId ? "inline" : "folder"),
+    parentAlbumId: parentAlbumId(albumId),
+    childAlbumIds: [],
     description: metadata?.description,
     entries,
     counts: { albums: 0, media: 0, images: 0, videos: 0 },
@@ -100,8 +105,17 @@ async function scanAlbum(state: BuildState, absoluteDir: string, albumId: string
 
     if (info.isDirectory()) {
       const child = await scanAlbum(state, absolutePath, childId);
-      entries.push({ kind: "album", id: child.id });
-      album.counts.albums += 1;
+      album.childAlbumIds?.push(child.id);
+      if (child.display === "inline") {
+        entries.push(...child.entries);
+        album.counts.albums += child.counts.albums;
+        album.counts.media += child.counts.media;
+        album.counts.images += child.counts.images;
+        album.counts.videos += child.counts.videos;
+      } else {
+        entries.push({ kind: "album", id: child.id });
+        album.counts.albums += 1;
+      }
       continue;
     }
 
@@ -120,6 +134,13 @@ async function scanAlbum(state: BuildState, absoluteDir: string, albumId: string
   return album;
 }
 
+function parentAlbumId(albumId: string): string | undefined {
+  if (!albumId) return undefined;
+  const parts = albumId.split("/");
+  parts.pop();
+  return parts.join("/");
+}
+
 async function processMedia(
   state: BuildState,
   absolutePath: string,
@@ -133,16 +154,28 @@ async function processMedia(
   const ext = path.extname(filename).toLowerCase();
   const originalName = `${hash}${ext}`;
   const thumbnailName = `${hash}.webp`;
+  const posterName = `${hash}.jpg`;
+  const previewName = `${hash}.mp4`;
   const publicOriginal = path.join(state.options.publicDir, "media", "originals", originalName);
   const publicThumbnail = path.join(state.options.publicDir, "media", "thumbnails", thumbnailName);
+  const publicPreview = path.join(state.options.publicDir, "media", "previews", previewName);
+  const publicPoster = path.join(state.options.publicDir, "media", "posters", posterName);
 
   await mkdir(path.dirname(publicOriginal), { recursive: true });
   await mkdir(path.dirname(publicThumbnail), { recursive: true });
+  await mkdir(path.dirname(publicPreview), { recursive: true });
+  await mkdir(path.dirname(publicPoster), { recursive: true });
   await copyIfNeeded(absolutePath, publicOriginal, state.options.force);
 
-  const dimensions = type === "image" ? await imageDimensions(absolutePath) : { width: 16, height: 9 };
+  const dimensions = type === "image" ? await imageDimensions(absolutePath) : await safeVideoDimensions(absolutePath);
+  let previewGenerated = false;
+  let posterGenerated = false;
+
   if (type === "image") {
     await thumbnailImage(absolutePath, publicThumbnail, state.options.force);
+  } else {
+    previewGenerated = await safeVideoPreview(absolutePath, publicPreview, state.options.force);
+    posterGenerated = await safeVideoPoster(absolutePath, publicPoster, state.options.force);
   }
 
   const title = metadata?.title ?? titleFromSlug(path.basename(filename, ext));
@@ -150,7 +183,12 @@ async function processMedia(
   const urls =
     type === "image"
       ? { original: `/media/originals/${originalName}`, thumbnail: `/media/thumbnails/${thumbnailName}` }
-      : { original: `/media/originals/${originalName}`, thumbnail: "", poster: "" };
+      : {
+          original: `/media/originals/${originalName}`,
+          thumbnail: posterGenerated ? `/media/posters/${posterName}` : "",
+          poster: posterGenerated ? `/media/posters/${posterName}` : undefined,
+          preview: previewGenerated ? `/media/previews/${previewName}` : `/media/originals/${originalName}`,
+        };
 
   const record: MediaRecord = {
     id,
@@ -221,14 +259,130 @@ async function imageDimensions(file: string): Promise<{ width: number; height: n
   };
 }
 
+async function videoDimensions(file: string): Promise<{ width: number; height: number }> {
+  const stdout = await run("ffprobe", [
+    "-v",
+    "error",
+    "-select_streams",
+    "v:0",
+    "-show_entries",
+    "stream=width,height",
+    "-of",
+    "json",
+    file,
+  ]);
+  const parsed = JSON.parse(stdout) as { streams?: Array<{ width?: number; height?: number }> };
+  const stream = parsed.streams?.[0];
+  return {
+    width: stream?.width ?? 16,
+    height: stream?.height ?? 9,
+  };
+}
+
+async function safeVideoDimensions(file: string): Promise<{ width: number; height: number }> {
+  try {
+    return await videoDimensions(file);
+  } catch (error) {
+    warnVideoProcessing("read video dimensions", file, error);
+    return { width: 16, height: 9 };
+  }
+}
+
 async function thumbnailImage(source: string, dest: string, force: boolean) {
   if (!force && (await exists(dest))) return;
   await sharp(source).rotate().resize({ width: 1200, withoutEnlargement: true }).webp({ quality: 82 }).toFile(dest);
 }
 
+async function videoPreview(source: string, dest: string, force: boolean) {
+  if (!force && (await exists(dest))) return;
+  await run("ffmpeg", [
+    "-y",
+    "-i",
+    source,
+    "-an",
+    "-vf",
+    "scale='min(960,iw)':-2",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-crf",
+    "28",
+    "-movflags",
+    "+faststart",
+    "-pix_fmt",
+    "yuv420p",
+    dest,
+  ]);
+}
+
+async function safeVideoPreview(source: string, dest: string, force: boolean): Promise<boolean> {
+  try {
+    await videoPreview(source, dest, force);
+    return true;
+  } catch (error) {
+    warnVideoProcessing("generate video preview", source, error);
+    return false;
+  }
+}
+
+async function videoPoster(source: string, dest: string, force: boolean) {
+  if (!force && (await exists(dest))) return;
+  await run("ffmpeg", [
+    "-y",
+    "-i",
+    source,
+    "-frames:v",
+    "1",
+    "-vf",
+    "scale='min(1200,iw)':-2",
+    "-q:v",
+    "3",
+    dest,
+  ]);
+}
+
+async function safeVideoPoster(source: string, dest: string, force: boolean): Promise<boolean> {
+  try {
+    await videoPoster(source, dest, force);
+    return true;
+  } catch (error) {
+    warnVideoProcessing("generate video poster", source, error);
+    return false;
+  }
+}
+
 async function copyIfNeeded(source: string, dest: string, force: boolean) {
   if (!force && (await exists(dest))) return;
   await copyFile(source, dest);
+}
+
+async function run(command: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", (error) => reject(error));
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve(stdout);
+      } else {
+        reject(new Error(`${command} exited with ${code ?? "unknown"}: ${stderr.trim()}`));
+      }
+    });
+  });
+}
+
+function warnVideoProcessing(action: string, file: string, error: unknown) {
+  const detail = error instanceof Error ? error.message : String(error);
+  console.warn(`Could not ${action} for ${file}. Falling back to original video. ${detail}`);
 }
 
 async function hashFile(file: string): Promise<string> {

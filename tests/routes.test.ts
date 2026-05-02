@@ -14,6 +14,7 @@ const manifest: GalleryManifest = {
       path: "",
       slug: "",
       title: "Photos",
+      display: "folder",
       entries: [
         { kind: "media", id: "desert-sunset" },
         { kind: "album", id: "trail" },
@@ -25,6 +26,7 @@ const manifest: GalleryManifest = {
       path: "trail",
       slug: "trail",
       title: "Trail",
+      display: "inline",
       entries: [
         { kind: "media", id: "trail/01" },
         { kind: "media", id: "trail/clip" },
@@ -57,6 +59,32 @@ test("resolves media with album-local navigation", () => {
   if (route.type === "media") {
     assert.equal(route.closePath, "/trail");
     assert.equal(route.previousId, undefined);
+    assert.equal(route.nextId, "trail/clip");
+  }
+});
+
+test("resolves inlined media with parent gallery context", () => {
+  const inlineManifest: GalleryManifest = {
+    ...manifest,
+    albums: {
+      ...manifest.albums,
+      "": {
+        ...manifest.albums[""],
+        entries: [
+          { kind: "media", id: "desert-sunset" },
+          { kind: "media", id: "trail/01" },
+          { kind: "media", id: "trail/clip" },
+        ],
+        counts: { albums: 0, media: 3, images: 2, videos: 1 },
+      },
+    },
+  };
+
+  const route = resolveRoute(inlineManifest, "/trail/01", "");
+  assert.equal(route.type, "media");
+  if (route.type === "media") {
+    assert.equal(route.closePath, "/");
+    assert.equal(route.previousId, "desert-sunset");
     assert.equal(route.nextId, "trail/clip");
   }
 });

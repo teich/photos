@@ -15,6 +15,9 @@ export interface AlbumRecord {
   path: string;
   slug: string;
   title: string;
+  display: "folder" | "inline";
+  parentAlbumId?: string;
+  childAlbumIds?: string[];
   description?: string;
   coverMediaId?: string;
   entries: GalleryEntry[];

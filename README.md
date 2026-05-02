@@ -17,6 +17,8 @@ npm run process-media -- --source ~/Pictures/gallery-source
 npm run build
 ```
 
+Video processing uses local `ffmpeg` and `ffprobe` when available. The processor writes silent looping MP4 previews to `public/media/previews/` and JPEG poster frames to `public/media/posters/`; the lightbox still opens the original video with normal controls. If `ffmpeg` is unavailable or broken, processing falls back to the original video URL for the grid preview.
+
 The app reads `/gallery.json` in the browser and renders all routes client-side:
 
 - `/` root gallery
@@ -25,3 +27,27 @@ The app reads `/gallery.json` in the browser and renders all routes client-side:
 - `/desert-sunset` root media view
 
 Static hosting should be configured with an SPA fallback to `index.html` so direct media and album URLs work.
+
+## Album Metadata
+
+Each directory can include an optional `index.json`:
+
+```json
+{
+  "title": "Trail",
+  "cover": "01.jpg",
+  "display": "folder",
+  "order": ["01.jpg", "02.jpg", "clip.mov"]
+}
+```
+
+Directories inline into their parent by default while keeping their own filtered route, such as `/trail`.
+
+Use `"display": "folder"` to show a directory as an album tile instead. For example, `2026-trail/index.json` can contain:
+
+```json
+{
+  "title": "2026 Trail",
+  "display": "folder"
+}
+```

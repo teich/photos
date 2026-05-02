@@ -7,10 +7,15 @@ import { Viewer } from "./Viewer";
 
 const RESTORE_KEY = "gallery:returnTarget";
 
+interface GalleryHistoryState {
+  galleryContextAlbumId?: string;
+}
+
 export function App() {
   const [manifest, setManifest] = useState<GalleryManifest | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pathname, setPathname] = useState(() => window.location.pathname);
+  const [contextAlbumId, setContextAlbumId] = useState(() => historyContextAlbumId());
 
   useEffect(() => {
     fetch("/gallery.json")
@@ -23,21 +28,28 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const onPopState = () => setPathname(window.location.pathname);
+    const onPopState = () => {
+      setPathname(window.location.pathname);
+      setContextAlbumId(historyContextAlbumId());
+    };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
-  const route = useMemo(() => (manifest ? resolveRoute(manifest, pathname) : null), [manifest, pathname]);
+  const route = useMemo(
+    () => (manifest ? resolveRoute(manifest, pathname, contextAlbumId) : null),
+    [contextAlbumId, manifest, pathname],
+  );
 
-  function navigate(path: string, replace = false) {
+  function navigate(path: string, context?: GalleryHistoryState, replace = false) {
     if (path === window.location.pathname) return;
     if (replace) {
-      window.history.replaceState(null, "", path);
+      window.history.replaceState(context ?? null, "", path);
     } else {
-      window.history.pushState(null, "", path);
+      window.history.pushState(context ?? null, "", path);
     }
     setPathname(window.location.pathname);
+    setContextAlbumId(historyContextAlbumId());
   }
 
   if (error) {
@@ -66,7 +78,7 @@ export function App() {
         album={album}
         restoreTarget={restoreTarget}
         onRestored={() => sessionStorage.removeItem(RESTORE_KEY)}
-        onNavigate={(path) => navigate(path)}
+        onNavigate={(path, context) => navigate(path, context)}
       />
       {route.type === "media" ? (
         <Viewer
@@ -76,9 +88,13 @@ export function App() {
             sessionStorage.setItem(RESTORE_KEY, route.media.id);
             navigate(route.closePath);
           }}
+          onOpenAlbum={(albumId) => {
+            sessionStorage.setItem(RESTORE_KEY, route.media.id);
+            navigate(routePath(albumId));
+          }}
           onNavigate={(mediaId) => {
             sessionStorage.setItem(RESTORE_KEY, mediaId);
-            navigate(routePath(mediaId));
+            navigate(routePath(mediaId), { galleryContextAlbumId: route.albumId });
           }}
         />
       ) : null}
@@ -89,4 +105,8 @@ export function App() {
       ) : null}
     </>
   );
+}
+
+function historyContextAlbumId(): string | undefined {
+  return (window.history.state as GalleryHistoryState | null)?.galleryContextAlbumId;
 }

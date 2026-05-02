@@ -8,13 +8,14 @@ interface GalleryProps {
   album: AlbumRecord;
   restoreTarget?: string;
   onRestored: () => void;
-  onNavigate: (path: string) => void;
+  onNavigate: (path: string, context?: { galleryContextAlbumId?: string }) => void;
 }
 
 export function Gallery({ manifest, album, restoreTarget, onRestored, onNavigate }: GalleryProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const tiles = useMemo(() => albumTiles(manifest, album), [manifest, album]);
+  const parentAlbum = album.id ? manifest.albums[album.parentAlbumId ?? ""] : undefined;
   const layout = useMemo(
     () =>
       justifiedLayout(tiles, width, {
@@ -47,12 +48,26 @@ export function Gallery({ manifest, album, restoreTarget, onRestored, onNavigate
   return (
     <main className="gallery-shell">
       <header className="gallery-header">
-        <h1>{album.title}</h1>
-        {album.description ? <p>{album.description}</p> : null}
+        <div className="gallery-title-block">
+          {album.id ? (
+            <a
+              className="up-link"
+              href={parentAlbum?.id ? `/${parentAlbum.id}` : "/"}
+              onClick={(event) => {
+                event.preventDefault();
+                onNavigate(parentAlbum?.id ? `/${parentAlbum.id}` : "/");
+              }}
+            >
+              Up to {parentAlbum?.title ?? manifest.title}
+            </a>
+          ) : null}
+          <h1>{album.title}</h1>
+          {album.description ? <p>{album.description}</p> : null}
+        </div>
       </header>
       <div ref={ref} className="gallery-wall" style={{ height: layout.height || undefined }}>
         {layout.items.map((item) => (
-          <Tile key={item.tile.id} tile={item.tile} style={item} onNavigate={onNavigate} />
+          <Tile key={item.tile.id} albumId={album.id} tile={item.tile} style={item} onNavigate={onNavigate} />
         ))}
       </div>
     </main>
@@ -61,15 +76,15 @@ export function Gallery({ manifest, album, restoreTarget, onRestored, onNavigate
 
 interface TileProps {
   tile: GalleryTile;
+  albumId: string;
   style: { x: number; y: number; width: number; height: number };
-  onNavigate: (path: string) => void;
+  onNavigate: (path: string, context?: { galleryContextAlbumId?: string }) => void;
 }
 
-function Tile({ tile, style, onNavigate }: TileProps) {
+function Tile({ tile, albumId, style, onNavigate }: TileProps) {
   const cover = tile.kind === "album" ? tile.cover : tile.media;
   const imageUrl = cover?.urls.thumbnail || cover?.urls.poster || "";
   const videoUrl = cover?.type === "video" ? cover.urls.preview || cover.urls.original : undefined;
-  const isVideo = tile.kind === "media" && tile.media.type === "video";
 
   return (
     <a
@@ -83,13 +98,13 @@ function Tile({ tile, style, onNavigate }: TileProps) {
       }}
       onClick={(event) => {
         event.preventDefault();
-        onNavigate(tile.href);
+        onNavigate(tile.href, tile.kind === "media" ? { galleryContextAlbumId: albumId } : undefined);
       }}
     >
-      {imageUrl ? (
+      {videoUrl ? (
+        <video src={videoUrl} poster={imageUrl} autoPlay muted loop playsInline preload="metadata" />
+      ) : imageUrl ? (
         <img src={imageUrl} alt="" loading="lazy" draggable="false" />
-      ) : videoUrl ? (
-        <video src={videoUrl} muted loop playsInline preload="metadata" />
       ) : (
         <div className="missing-cover" />
       )}
@@ -101,7 +116,6 @@ function Tile({ tile, style, onNavigate }: TileProps) {
           </span>
         </span>
       ) : null}
-      {isVideo ? <span className="play-badge" aria-label="Video" /> : null}
     </a>
   );
 }

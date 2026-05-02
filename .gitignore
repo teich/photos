@@ -37,4 +37,7 @@ public/photos
 public/media
 public/gallery.json
 metadata.json
+source-media/
+source-media-restored/
+gallery-source-restored/
 /tmp

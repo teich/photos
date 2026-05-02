@@ -22,7 +22,7 @@ export type ResolvedRoute =
       fallbackAlbum: AlbumRecord;
     };
 
-export function resolveRoute(manifest: GalleryManifest, pathname: string): ResolvedRoute {
+export function resolveRoute(manifest: GalleryManifest, pathname: string, contextAlbumId?: string): ResolvedRoute {
   const path = normalizePathname(pathname);
 
   const album = manifest.albums[path];
@@ -32,7 +32,10 @@ export function resolveRoute(manifest: GalleryManifest, pathname: string): Resol
 
   const media = manifest.media[path];
   if (media) {
-    const owner = manifest.albums[media.albumId] ?? manifest.albums[manifest.rootAlbumId];
+    const contextAlbum = contextAlbumId !== undefined ? manifest.albums[contextAlbumId] : undefined;
+    const owner = contextAlbum?.entries.some((entry) => entry.kind === "media" && entry.id === media.id)
+      ? contextAlbum
+      : manifest.albums[media.albumId] ?? manifest.albums[manifest.rootAlbumId];
     const mediaEntries = owner.entries.filter((entry) => entry.kind === "media");
     const index = mediaEntries.findIndex((entry) => entry.id === media.id);
 

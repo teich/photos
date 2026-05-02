@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { routePath } from "../lib/paths";
 import type { ResolvedRoute } from "../lib/routes";
 import type { GalleryManifest } from "../types/gallery";
 
@@ -6,10 +7,11 @@ interface ViewerProps {
   manifest: GalleryManifest;
   route: Extract<ResolvedRoute, { type: "media" }>;
   onClose: () => void;
+  onOpenAlbum: (albumId: string) => void;
   onNavigate: (mediaId: string) => void;
 }
 
-export function Viewer({ manifest, route, onClose, onNavigate }: ViewerProps) {
+export function Viewer({ manifest, route, onClose, onOpenAlbum, onNavigate }: ViewerProps) {
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const { media } = route;
 
@@ -71,7 +73,17 @@ export function Viewer({ manifest, route, onClose, onNavigate }: ViewerProps) {
       ) : null}
       <div className="viewer-counter">
         {media.title}
-        {manifest.albums[media.albumId]?.title ? <span>{manifest.albums[media.albumId].title}</span> : null}
+        {manifest.albums[media.albumId]?.title ? (
+          <a
+            href={routePath(media.albumId)}
+            onClick={(event) => {
+              event.preventDefault();
+              onOpenAlbum(media.albumId);
+            }}
+          >
+            {manifest.albums[media.albumId].title}
+          </a>
+        ) : null}
       </div>
     </section>
   );
