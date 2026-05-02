@@ -25,9 +25,9 @@ button {
 }
 
 .gallery-shell {
-  width: min(100%, 1500px);
+  width: min(100%, 1360px);
   margin: 0 auto;
-  padding: 18px clamp(4px, 1.2vw, 18px) 60px;
+  padding: clamp(36px, 5.5vw, 82px) clamp(36px, 8vw, 132px) 88px;
 }
 
 .gallery-header {
@@ -35,19 +35,7 @@ button {
   align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
-  padding: 2px clamp(4px, 0.6vw, 8px) 14px;
-}
-
-.gallery-title-block {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-
-.gallery-header h1 {
-  margin: 0;
-  font-size: clamp(1.1rem, 1.8vw, 1.55rem);
-  font-weight: 520;
+  padding-bottom: 16px;
 }
 
 .gallery-header p {
@@ -258,7 +246,7 @@ button {
 
 @media (max-width: 680px) {
   .gallery-shell {
-    padding-top: 8px;
+    padding: 18px clamp(12px, 4vw, 24px) 44px;
   }
 
   .gallery-header {

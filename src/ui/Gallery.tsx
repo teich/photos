@@ -20,9 +20,9 @@ export function Gallery({ manifest, album, restoreTarget, onRestored, onNavigate
     () =>
       justifiedLayout(tiles, width, {
         gap: width < 680 ? 3 : 6,
-        targetRowHeight: width < 680 ? 160 : 270,
-        minRowHeight: width < 680 ? 118 : 170,
-        maxRowHeight: width < 680 ? 240 : 390,
+        targetRowHeight: width < 680 ? 176 : 340,
+        minRowHeight: width < 680 ? 128 : 210,
+        maxRowHeight: width < 680 ? 260 : 470,
       }),
     [tiles, width],
   );
@@ -47,8 +47,8 @@ export function Gallery({ manifest, album, restoreTarget, onRestored, onNavigate
 
   return (
     <main className="gallery-shell">
-      <header className="gallery-header">
-        <div className="gallery-title-block">
+      {album.id || album.description ? (
+        <header className="gallery-header">
           {album.id ? (
             <a
               className="up-link"
@@ -61,10 +61,9 @@ export function Gallery({ manifest, album, restoreTarget, onRestored, onNavigate
               Up to {parentAlbum?.title ?? manifest.title}
             </a>
           ) : null}
-          <h1>{album.title}</h1>
           {album.description ? <p>{album.description}</p> : null}
-        </div>
-      </header>
+        </header>
+      ) : null}
       <div ref={ref} className="gallery-wall" style={{ height: layout.height || undefined }}>
         {layout.items.map((item) => (
           <Tile key={item.tile.id} albumId={album.id} tile={item.tile} style={item} onNavigate={onNavigate} />
