@@ -20,6 +20,7 @@ interface MediaMetadata {
   title?: string;
   caption?: string;
   date?: string;
+  originalFilename?: string;
 }
 
 interface BuildOptions {
@@ -212,7 +213,7 @@ async function processMedia(
     width: dimensions.width,
     height: dimensions.height,
     aspectRatio: dimensions.width / dimensions.height,
-    captureDate: metadata?.date ?? (await captureDateForMedia(type, absolutePath)),
+    captureDate: metadata?.date ?? (await captureDateForMedia(type, absolutePath, [metadata?.originalFilename, filename])),
     urls,
   };
 
@@ -405,8 +406,10 @@ async function safeVideoPoster(source: string, dest: string, force: boolean): Pr
   }
 }
 
-async function captureDateForMedia(type: MediaKind, file: string): Promise<string | undefined> {
-  return type === "image" ? imageCaptureDate(file) : safeVideoCaptureDate(file);
+async function captureDateForMedia(type: MediaKind, file: string, filenames: Array<string | undefined>): Promise<string | undefined> {
+  return type === "image"
+    ? (await imageCaptureDate(file)) ?? filenameCaptureDate(filenames)
+    : (await safeVideoCaptureDate(file, filenames));
 }
 
 async function imageCaptureDate(file: string): Promise<string | undefined> {
@@ -415,21 +418,21 @@ async function imageCaptureDate(file: string): Promise<string | undefined> {
   return parseExifCaptureDate(metadata.exif);
 }
 
-async function safeVideoCaptureDate(file: string): Promise<string | undefined> {
+async function safeVideoCaptureDate(file: string, filenames: Array<string | undefined>): Promise<string | undefined> {
   try {
-    return await videoCaptureDate(file);
+    return await videoCaptureDate(file, filenames);
   } catch (error) {
     warnVideoProcessing("read video capture date", file, error);
-    return undefined;
+    return filenameCaptureDate(filenames);
   }
 }
 
-async function videoCaptureDate(file: string): Promise<string | undefined> {
+async function videoCaptureDate(file: string, filenames: Array<string | undefined>): Promise<string | undefined> {
   const stdout = await run("ffprobe", [
     "-v",
     "error",
     "-show_entries",
-    "format_tags=creation_time:stream_tags=creation_time",
+    "format_tags=creation_time,com.apple.quicktime.creationdate:stream_tags=creation_time",
     "-of",
     "json",
     file,
@@ -438,7 +441,37 @@ async function videoCaptureDate(file: string): Promise<string | undefined> {
     format?: { tags?: Record<string, string> };
     streams?: Array<{ tags?: Record<string, string> }>;
   };
-  return parsed.format?.tags?.creation_time ?? parsed.streams?.find((stream) => stream.tags?.creation_time)?.tags?.creation_time;
+  return (
+    parsed.format?.tags?.["com.apple.quicktime.creationdate"] ??
+    filenameCaptureDate(filenames) ??
+    parsed.format?.tags?.creation_time ??
+    parsed.streams?.find((stream) => stream.tags?.creation_time)?.tags?.creation_time
+  );
+}
+
+function filenameCaptureDate(filenames: Array<string | undefined>): string | undefined {
+  for (const filename of filenames) {
+    const date = filename ? parseFilenameCaptureDate(filename) : undefined;
+    if (date) return date;
+  }
+  return undefined;
+}
+
+function parseFilenameCaptureDate(filename: string): string | undefined {
+  const basename = path.basename(filename, path.extname(filename));
+  const compact = basename.match(/(?:^|[^0-9])(\d{4})(\d{2})(\d{2})[_-]?(\d{2})(\d{2})(\d{2})(?:[^0-9]|$)/);
+  if (compact) {
+    const [, year, month, day, hour, minute, second] = compact;
+    return `${year}-${month}-${day}T${hour}:${minute}:${second}`;
+  }
+
+  const dashed = basename.match(/(?:^|[^0-9])(\d{4})-(\d{2})-(\d{2})[-_ ](\d{2})(\d{2})(\d{2})(?:[^0-9]|$)/);
+  if (dashed) {
+    const [, year, month, day, hour, minute, second] = dashed;
+    return `${year}-${month}-${day}T${hour}:${minute}:${second}`;
+  }
+
+  return undefined;
 }
 
 function parseExifCaptureDate(exif: Buffer): string | undefined {

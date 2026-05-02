@@ -130,6 +130,54 @@ test("buildGallery creates video preview and poster URLs", async (context) => {
   }
 });
 
+test("buildGallery prefers QuickTime creation date over generic video creation time", async (context) => {
+  if (!(await commandWorks("ffmpeg")) || !(await commandWorks("ffprobe"))) {
+    context.skip("ffmpeg and ffprobe are required for video processing");
+    return;
+  }
+
+  const root = await mkdtemp(path.join(os.tmpdir(), "gallery-source-"));
+  const output = await mkdtemp(path.join(os.tmpdir(), "gallery-public-"));
+
+  try {
+    await video(path.join(root, "IMG_0185.MOV"), {
+      creationTime: "2026-05-02T04:58:41.000000Z",
+      quickTimeCreationDate: "2025-02-05T16:39:47-0800",
+    });
+
+    const manifest = await buildGallery({ source: root, publicDir: output, force: false });
+
+    assert.equal(manifest.media["img-0185"].captureDate, "2025-02-05T16:39:47-0800");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(output, { recursive: true, force: true });
+  }
+});
+
+test("buildGallery falls back to original filename timestamps for videos", async (context) => {
+  if (!(await commandWorks("ffmpeg")) || !(await commandWorks("ffprobe"))) {
+    context.skip("ffmpeg and ffprobe are required for video processing");
+    return;
+  }
+
+  const root = await mkdtemp(path.join(os.tmpdir(), "gallery-source-"));
+  const output = await mkdtemp(path.join(os.tmpdir(), "gallery-public-"));
+
+  try {
+    await video(path.join(root, "2025-03-06-045231-001.mp4"), {
+      creationTime: "2026-05-02T04:58:41.000000Z",
+    });
+    await writeFile(path.join(root, "2025-03-06-045231-001.json"), JSON.stringify({ originalFilename: "DJI_20250205142551_0038_D.mp4" }));
+
+    const manifest = await buildGallery({ source: root, publicDir: output, force: false });
+
+    assert.equal(manifest.media["2025-03-06-045231-001"].captureDate, "2025-02-05T14:25:51");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(output, { recursive: true, force: true });
+  }
+});
+
 test("buildGallery can write media URLs against a public media base", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "gallery-source-"));
   const output = await mkdtemp(path.join(os.tmpdir(), "gallery-public-"));
@@ -170,17 +218,26 @@ async function image(file: string, width: number, height: number, captureDate?: 
   await pipeline.toFile(file);
 }
 
-async function video(file: string) {
-  await run("ffmpeg", [
+async function video(file: string, metadata?: { creationTime?: string; quickTimeCreationDate?: string }) {
+  const args = [
     "-y",
     "-f",
     "lavfi",
     "-i",
     "testsrc=size=64x36:rate=12:duration=0.5",
+  ];
+  if (metadata?.creationTime) {
+    args.push("-metadata", `creation_time=${metadata.creationTime}`);
+  }
+  if (metadata?.quickTimeCreationDate) {
+    args.push("-metadata", `com.apple.quicktime.creationdate=${metadata.quickTimeCreationDate}`, "-movflags", "use_metadata_tags");
+  }
+  args.push(
     "-pix_fmt",
     "yuv420p",
     file,
-  ]);
+  );
+  await run("ffmpeg", args);
 }
 
 async function commandWorks(command: string): Promise<boolean> {
