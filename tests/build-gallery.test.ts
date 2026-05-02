@@ -92,6 +92,28 @@ test("buildGallery creates video preview and poster URLs", async (context) => {
   }
 });
 
+test("buildGallery can write media URLs against a public media base", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "gallery-source-"));
+  const output = await mkdtemp(path.join(os.tmpdir(), "gallery-public-"));
+
+  try {
+    await image(path.join(root, "cover.jpg"), 900, 900);
+
+    const manifest = await buildGallery({
+      source: root,
+      publicDir: output,
+      mediaBaseUrl: "https://blobs.zednine.com/",
+      force: false,
+    });
+
+    assert.match(manifest.media.cover.urls.original, /^https:\/\/blobs\.zednine\.com\/media\/originals\//);
+    assert.match(manifest.media.cover.urls.thumbnail, /^https:\/\/blobs\.zednine\.com\/media\/thumbnails\//);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(output, { recursive: true, force: true });
+  }
+});
+
 async function image(file: string, width: number, height: number) {
   await sharp({
     create: {

@@ -13,11 +13,20 @@ npm run dev
 ## Build
 
 ```bash
-npm run process-media -- --source ~/Pictures/gallery-source
+npm run process-media -- --source ~/Pictures/gallery-source --media-base-url https://blobs.zednine.com
 npm run build
 ```
 
 Video processing uses local `ffmpeg` and `ffprobe` when available. The processor writes silent looping MP4 previews to `public/media/previews/` and JPEG poster frames to `public/media/posters/`; the lightbox still opens the original video with normal controls. If `ffmpeg` is unavailable or broken, processing falls back to the original video URL for the grid preview.
+
+For production, sync `public/media` to the R2 bucket behind `https://blobs.zednine.com`, then deploy the app as a Cloudflare Worker with static assets:
+
+```bash
+rclone copy public/media r2:<bucket-name>/media
+npm run deploy
+```
+
+The production build removes `dist/media` after Vite copies `public/`, so the Worker deploy only uploads the app shell and `gallery.json`. Generated media stays in R2.
 
 The app reads `/gallery.json` in the browser and renders all routes client-side:
 

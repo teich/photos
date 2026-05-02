@@ -25,6 +25,7 @@ interface MediaMetadata {
 interface BuildOptions {
   source: string;
   publicDir: string;
+  mediaBaseUrl?: string;
   force: boolean;
 }
 
@@ -62,6 +63,7 @@ export async function buildGallery(options: BuildOptions): Promise<GalleryManife
 function parseArgs(args: string[]): BuildOptions {
   const sourceIndex = args.findIndex((arg) => arg === "--source" || arg === "-s");
   const publicIndex = args.findIndex((arg) => arg === "--public-dir");
+  const mediaBaseUrl = readArg(args, "--media-base-url") ?? process.env.GALLERY_MEDIA_BASE_URL;
   const source = sourceIndex >= 0 ? args[sourceIndex + 1] : process.env.GALLERY_SOURCE;
   if (!source) {
     throw new Error("Missing source directory. Use --source /path/to/source-media or GALLERY_SOURCE.");
@@ -70,6 +72,7 @@ function parseArgs(args: string[]): BuildOptions {
   return {
     source: path.resolve(source),
     publicDir: path.resolve(publicIndex >= 0 ? args[publicIndex + 1] : "public"),
+    mediaBaseUrl: mediaBaseUrl ? mediaBaseUrl.replace(/\/+$/g, "") : undefined,
     force: args.includes("--force"),
   };
 }
@@ -182,12 +185,15 @@ async function processMedia(
   const sourcePath = path.relative(state.options.source, absolutePath).split(path.sep).join("/");
   const urls =
     type === "image"
-      ? { original: `/media/originals/${originalName}`, thumbnail: `/media/thumbnails/${thumbnailName}` }
+      ? {
+          original: assetUrl(state, `media/originals/${originalName}`),
+          thumbnail: assetUrl(state, `media/thumbnails/${thumbnailName}`),
+        }
       : {
-          original: `/media/originals/${originalName}`,
-          thumbnail: posterGenerated ? `/media/posters/${posterName}` : "",
-          poster: posterGenerated ? `/media/posters/${posterName}` : undefined,
-          preview: previewGenerated ? `/media/previews/${previewName}` : `/media/originals/${originalName}`,
+          original: assetUrl(state, `media/originals/${originalName}`),
+          thumbnail: posterGenerated ? assetUrl(state, `media/posters/${posterName}`) : "",
+          poster: posterGenerated ? assetUrl(state, `media/posters/${posterName}`) : undefined,
+          preview: previewGenerated ? assetUrl(state, `media/previews/${previewName}`) : assetUrl(state, `media/originals/${originalName}`),
         };
 
   const record: MediaRecord = {
@@ -209,6 +215,20 @@ async function processMedia(
 
   state.manifest.media[id] = record;
   return record;
+}
+
+function assetUrl(state: BuildState, key: string): string {
+  return state.options.mediaBaseUrl ? `${state.options.mediaBaseUrl.replace(/\/+$/g, "")}/${key}` : `/${key}`;
+}
+
+function readArg(args: string[], name: string): string | undefined {
+  const index = args.indexOf(name);
+  if (index < 0) return undefined;
+  const value = args[index + 1];
+  if (!value || value.startsWith("-")) {
+    throw new Error(`Missing value for ${name}`);
+  }
+  return value;
 }
 
 function mediaKind(name: string): MediaKind | undefined {

@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && tsx scripts/prepare-worker-assets.ts",
     "preview": "vite preview",
     "process-media": "tsx scripts/build-gallery.ts",
+    "deploy": "npm run build && npx wrangler deploy",
     "restore-r2-originals": "tsx scripts/restore-r2-originals.ts",
     "test": "node --import tsx --test tests/*.test.ts"
   },
