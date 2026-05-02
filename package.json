@@ -8,6 +8,7 @@
     "build": "tsc && vite build && tsx scripts/prepare-worker-assets.ts",
     "preview": "vite preview",
     "process-media": "tsx scripts/build-gallery.ts",
+    "publish": "tsx scripts/publish-gallery.ts",
     "deploy": "npm run build && npx wrangler deploy",
     "restore-r2-originals": "tsx scripts/restore-r2-originals.ts",
     "test": "node --import tsx --test tests/*.test.ts"

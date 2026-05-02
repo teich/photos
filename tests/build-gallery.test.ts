@@ -65,6 +65,44 @@ test("buildGallery inlines child directories by default", async () => {
   }
 });
 
+test("buildGallery sorts media chronologically by capture date", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "gallery-source-"));
+  const output = await mkdtemp(path.join(os.tmpdir(), "gallery-public-"));
+
+  try {
+    await image(path.join(root, "03.jpg"), 1200, 800, "2026:01:03 10:00:00");
+    await image(path.join(root, "01.jpg"), 1200, 800, "2026:01:01 10:00:00");
+    await image(path.join(root, "02.jpg"), 1200, 800, "2026:01:02 10:00:00");
+
+    const manifest = await buildGallery({ source: root, publicDir: output, force: false });
+
+    assert.deepEqual(manifest.albums[""].entries.map((entry) => entry.id), ["01", "02", "03"]);
+    assert.equal(manifest.media["01"].captureDate, "2026-01-01T10:00:00");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(output, { recursive: true, force: true });
+  }
+});
+
+test("buildGallery lets sidecar dates participate in chronological sorting", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "gallery-source-"));
+  const output = await mkdtemp(path.join(os.tmpdir(), "gallery-public-"));
+
+  try {
+    await image(path.join(root, "b.jpg"), 1200, 800);
+    await writeFile(path.join(root, "b.json"), JSON.stringify({ date: "2026-01-02T10:00:00" }));
+    await image(path.join(root, "a.jpg"), 1200, 800);
+    await writeFile(path.join(root, "a.json"), JSON.stringify({ date: "2026-01-01T10:00:00" }));
+
+    const manifest = await buildGallery({ source: root, publicDir: output, force: false });
+
+    assert.deepEqual(manifest.albums[""].entries.map((entry) => entry.id), ["a", "b"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(output, { recursive: true, force: true });
+  }
+});
+
 test("buildGallery creates video preview and poster URLs", async (context) => {
   if (!(await commandWorks("ffmpeg")) || !(await commandWorks("ffprobe"))) {
     context.skip("ffmpeg and ffprobe are required for video processing");
@@ -114,17 +152,22 @@ test("buildGallery can write media URLs against a public media base", async () =
   }
 });
 
-async function image(file: string, width: number, height: number) {
-  await sharp({
+async function image(file: string, width: number, height: number, captureDate?: string) {
+  let pipeline = sharp({
     create: {
       width,
       height,
       channels: 3,
       background: "#8f7a5f",
     },
-  })
-    .jpeg()
-    .toFile(file);
+  }).jpeg();
+  if (captureDate) {
+    pipeline = pipeline.withExif({
+      IFD0: { DateTime: captureDate },
+      IFD2: { DateTimeOriginal: captureDate },
+    });
+  }
+  await pipeline.toFile(file);
 }
 
 async function video(file: string) {

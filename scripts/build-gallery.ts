@@ -133,6 +133,9 @@ async function scanAlbum(state: BuildState, absoluteDir: string, albumId: string
     if (kind === "video") album.counts.videos += 1;
   }
 
+  if (!metadata?.order?.length) {
+    sortEntriesChronologically(state.manifest, entries);
+  }
   album.coverMediaId = pickCoverMediaId(state.manifest, album, metadata?.cover);
   return album;
 }
@@ -209,7 +212,7 @@ async function processMedia(
     width: dimensions.width,
     height: dimensions.height,
     aspectRatio: dimensions.width / dimensions.height,
-    captureDate: metadata?.date,
+    captureDate: metadata?.date ?? (await captureDateForMedia(type, absolutePath)),
     urls,
   };
 
@@ -253,6 +256,36 @@ function orderNames(names: string[], order: string[] | undefined): string[] {
 
 function naturalSort(a: string, b: string): number {
   return a.localeCompare(b, undefined, { numeric: true });
+}
+
+function sortEntriesChronologically(manifest: GalleryManifest, entries: GalleryEntry[]) {
+  const indexed = new Map(entries.map((entry, index) => [entry, index]));
+  entries.sort((a, b) => {
+    const aTime = entryCaptureTime(manifest, a);
+    const bTime = entryCaptureTime(manifest, b);
+    if (aTime !== undefined && bTime !== undefined && aTime !== bTime) return aTime - bTime;
+    if (aTime !== undefined && bTime === undefined) return -1;
+    if (aTime === undefined && bTime !== undefined) return 1;
+    return (indexed.get(a) ?? 0) - (indexed.get(b) ?? 0);
+  });
+}
+
+function entryCaptureTime(manifest: GalleryManifest, entry: GalleryEntry): number | undefined {
+  if (entry.kind === "media") return parseCaptureTime(manifest.media[entry.id]?.captureDate);
+
+  const album = manifest.albums[entry.id];
+  if (!album) return undefined;
+  const times = album.entries
+    .map((childEntry) => entryCaptureTime(manifest, childEntry))
+    .filter((time): time is number => time !== undefined);
+  return times.length ? Math.min(...times) : undefined;
+}
+
+function parseCaptureTime(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const normalized = normalizeExifDate(value) ?? value;
+  const timestamp = Date.parse(normalized);
+  return Number.isFinite(timestamp) ? timestamp : undefined;
 }
 
 function pickCoverMediaId(manifest: GalleryManifest, album: AlbumRecord, coverName?: string): string | undefined {
@@ -370,6 +403,100 @@ async function safeVideoPoster(source: string, dest: string, force: boolean): Pr
     warnVideoProcessing("generate video poster", source, error);
     return false;
   }
+}
+
+async function captureDateForMedia(type: MediaKind, file: string): Promise<string | undefined> {
+  return type === "image" ? imageCaptureDate(file) : safeVideoCaptureDate(file);
+}
+
+async function imageCaptureDate(file: string): Promise<string | undefined> {
+  const metadata = await sharp(file).metadata();
+  if (!metadata.exif) return undefined;
+  return parseExifCaptureDate(metadata.exif);
+}
+
+async function safeVideoCaptureDate(file: string): Promise<string | undefined> {
+  try {
+    return await videoCaptureDate(file);
+  } catch (error) {
+    warnVideoProcessing("read video capture date", file, error);
+    return undefined;
+  }
+}
+
+async function videoCaptureDate(file: string): Promise<string | undefined> {
+  const stdout = await run("ffprobe", [
+    "-v",
+    "error",
+    "-show_entries",
+    "format_tags=creation_time:stream_tags=creation_time",
+    "-of",
+    "json",
+    file,
+  ]);
+  const parsed = JSON.parse(stdout) as {
+    format?: { tags?: Record<string, string> };
+    streams?: Array<{ tags?: Record<string, string> }>;
+  };
+  return parsed.format?.tags?.creation_time ?? parsed.streams?.find((stream) => stream.tags?.creation_time)?.tags?.creation_time;
+}
+
+function parseExifCaptureDate(exif: Buffer): string | undefined {
+  const tiffStart = exif.subarray(0, 6).equals(Buffer.from("Exif\0\0")) ? 6 : 0;
+  if (exif.length < tiffStart + 8) return undefined;
+
+  const byteOrder = exif.toString("ascii", tiffStart, tiffStart + 2);
+  const littleEndian = byteOrder === "II";
+  if (!littleEndian && byteOrder !== "MM") return undefined;
+
+  const readUInt16 = (offset: number) => (littleEndian ? exif.readUInt16LE(offset) : exif.readUInt16BE(offset));
+  const readUInt32 = (offset: number) => (littleEndian ? exif.readUInt32LE(offset) : exif.readUInt32BE(offset));
+  if (readUInt16(tiffStart + 2) !== 42) return undefined;
+
+  const readAscii = (entryOffset: number): string | undefined => {
+    const type = readUInt16(entryOffset + 2);
+    const count = readUInt32(entryOffset + 4);
+    if (type !== 2 || count === 0) return undefined;
+    const valueOffset = count <= 4 ? entryOffset + 8 : tiffStart + readUInt32(entryOffset + 8);
+    if (valueOffset < 0 || valueOffset + count > exif.length) return undefined;
+    return exif
+      .toString("ascii", valueOffset, valueOffset + count)
+      .replace(/\0+$/g, "")
+      .trim();
+  };
+
+  const findEntry = (ifdOffset: number, tag: number): number | undefined => {
+    const offset = tiffStart + ifdOffset;
+    if (offset < 0 || offset + 2 > exif.length) return undefined;
+    const entryCount = readUInt16(offset);
+    for (let index = 0; index < entryCount; index += 1) {
+      const entryOffset = offset + 2 + index * 12;
+      if (entryOffset + 12 > exif.length) return undefined;
+      if (readUInt16(entryOffset) === tag) return entryOffset;
+    }
+    return undefined;
+  };
+
+  const ifd0Offset = readUInt32(tiffStart + 4);
+  const exifIfdEntry = findEntry(ifd0Offset, 0x8769);
+  if (exifIfdEntry !== undefined) {
+    const exifIfdOffset = readUInt32(exifIfdEntry + 8);
+    const originalDate = findEntry(exifIfdOffset, 0x9003);
+    const digitizedDate = findEntry(exifIfdOffset, 0x9004);
+    const date = originalDate !== undefined ? readAscii(originalDate) : digitizedDate !== undefined ? readAscii(digitizedDate) : undefined;
+    const normalized = normalizeExifDate(date);
+    if (normalized) return normalized;
+  }
+
+  const imageDate = findEntry(ifd0Offset, 0x0132);
+  return imageDate !== undefined ? normalizeExifDate(readAscii(imageDate)) : undefined;
+}
+
+function normalizeExifDate(value: string | undefined): string | undefined {
+  const match = value?.match(/^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
+  if (!match) return undefined;
+  const [, year, month, day, hour, minute, second] = match;
+  return `${year}-${month}-${day}T${hour}:${minute}:${second}`;
 }
 
 async function copyIfNeeded(source: string, dest: string, force: boolean) {

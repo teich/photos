@@ -22,9 +22,16 @@ Video processing uses local `ffmpeg` and `ffprobe` when available. The processor
 For production, sync `public/media` to the R2 bucket behind `https://blobs.zednine.com`, then deploy the app as a Cloudflare Worker with static assets:
 
 ```bash
-rclone copy public/media r2:<bucket-name>/media
-npm run deploy
+npm run publish
 ```
+
+`npm run publish` defaults to:
+
+- source media: `~/Pictures/gallery-source`
+- public media base URL: `https://blobs.zednine.com`
+- R2 destination: `r2:photos/media`
+
+Override those defaults with `--source`, `--media-base-url`, and `--rclone-dest`, or with `GALLERY_SOURCE`, `GALLERY_MEDIA_BASE_URL`, and `GALLERY_RCLONE_DEST`.
 
 The production build removes `dist/media` after Vite copies `public/`, so the Worker deploy only uploads the app shell and `gallery.json`. Generated media stays in R2.
 
